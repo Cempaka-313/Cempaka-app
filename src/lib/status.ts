@@ -19,7 +19,21 @@ export const STATUS_COLOR: Record<ProjectStatus, string> = {
   cancelled: "bg-rose-100 text-rose-800",
 }
 
-export const ROLE_LABEL: Record<string, string> = {
+// Sesuai CHECK constraint profiles.peran.
+export const ROLES = [
+  "sales",
+  "estimator",
+  "pic_proyek",
+  "purchasing",
+  "manajer",
+  "owner",
+  "finance",
+  "admin",
+] as const
+
+export type Role = (typeof ROLES)[number]
+
+export const ROLE_LABEL: Record<Role, string> = {
   sales: "Sales",
   estimator: "Estimator",
   pic_proyek: "PIC Proyek",
@@ -27,4 +41,16 @@ export const ROLE_LABEL: Record<string, string> = {
   manajer: "Manajer",
   owner: "Owner",
   finance: "Finance",
+  admin: "Admin",
+}
+
+// Peran yang boleh mengedit proyek, item, BOM, revisi (cermin policy RLS).
+export const EDIT_ROLES: readonly Role[] = ["estimator", "manajer", "owner", "admin"]
+// Peran yang boleh approve (admin setara owner).
+export const APPROVER_ROLES: readonly Role[] = ["manajer", "owner", "admin"]
+// Khusus admin: kelola user, template QUO, default_settings.
+export const ADMIN_ROLES: readonly Role[] = ["admin"]
+
+export function hasRole(role: string | null | undefined, allowed: readonly Role[]) {
+  return !!role && (allowed as readonly string[]).includes(role)
 }

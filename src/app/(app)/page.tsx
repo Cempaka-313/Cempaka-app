@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { createClient } from "@/lib/supabase/server"
 import { PROJECT_STATUSES, STATUS_COLOR, type ProjectStatus } from "@/lib/status"
 
@@ -33,7 +34,7 @@ export default async function ProjectsKanbanPage() {
               </header>
               <div className="space-y-2">
                 {items.map((p) => (
-                  <article key={p.id} className="rounded border border-zinc-200 bg-white p-3 shadow-sm">
+                  <Link key={p.id} href={`/projects/${p.id}`} className="block rounded border border-zinc-200 bg-white p-3 shadow-sm hover:border-brand">
                     <div className="flex items-start justify-between gap-2">
                       <h3 className="font-medium leading-tight">{p.nama_proyek}</h3>
                       <span className="text-xs uppercase text-zinc-500">{p.jenis}</span>
@@ -45,7 +46,7 @@ export default async function ProjectsKanbanPage() {
                         {p.status}
                       </span>
                     </div>
-                  </article>
+                  </Link>
                 ))}
               </div>
             </section>

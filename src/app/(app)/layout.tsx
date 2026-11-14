@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { Suspense } from "react"
 import { createClient } from "@/lib/supabase/server"
-import { ROLE_LABEL } from "@/lib/status"
+import { ROLE_LABEL, type Role } from "@/lib/status"
 import { logout } from "../login/actions"
 
 // Shell statis (header + nav) di-prerender; bagian yang membaca sesi di-stream lewat <Suspense>.
@@ -44,7 +44,7 @@ async function UserMenu() {
     <>
       <span className={profile ? "hidden sm:inline" : "rounded bg-amber-300 px-2 py-0.5 text-amber-950"}>
         {profile
-          ? `${profile.nama} · ${ROLE_LABEL[profile.peran] ?? profile.peran}`
+          ? `${profile.nama} · ${ROLE_LABEL[profile.peran as Role] ?? profile.peran}`
           : "Profil belum dibuat"}
       </span>
       <form action={logout}>

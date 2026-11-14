@@ -47,7 +47,10 @@ export type Database = {
           user_id?: string | null
         }
         Update: Partial<Database["public"]["Tables"]["activity_log"]["Insert"]>
-        Relationships: Rel[]
+        Relationships: [
+          { foreignKeyName: "activity_log_project_id_fkey"; columns: ["project_id"]; isOneToOne: false; referencedRelation: "projects"; referencedColumns: ["id"] },
+          { foreignKeyName: "activity_log_user_id_fkey"; columns: ["user_id"]; isOneToOne: false; referencedRelation: "profiles"; referencedColumns: ["id"] },
+        ]
       }
       approvals: {
         Row: {
@@ -170,6 +173,7 @@ export type Database = {
           email: string | null
           id: string
           nama: string
+          /** sales | estimator | pic_proyek | purchasing | manajer | owner | finance | admin — lihat ROLES di lib/status.ts */
           peran: string
         }
         Insert: {
@@ -351,7 +355,12 @@ export type Database = {
           updated_at?: string
         }
         Update: Partial<Database["public"]["Tables"]["projects"]["Insert"]>
-        Relationships: Rel[]
+        Relationships: [
+          { foreignKeyName: "projects_current_revision_id_fkey"; columns: ["current_revision_id"]; isOneToOne: false; referencedRelation: "quotation_revisions"; referencedColumns: ["id"] },
+          { foreignKeyName: "projects_holder_id_fkey"; columns: ["holder_id"]; isOneToOne: false; referencedRelation: "profiles"; referencedColumns: ["id"] },
+          { foreignKeyName: "projects_sales_id_fkey"; columns: ["sales_id"]; isOneToOne: false; referencedRelation: "profiles"; referencedColumns: ["id"] },
+          { foreignKeyName: "projects_template_id_fkey"; columns: ["template_id"]; isOneToOne: false; referencedRelation: "quo_templates"; referencedColumns: ["id"] },
+        ]
       }
       quo_templates: {
         Row: {
@@ -403,7 +412,10 @@ export type Database = {
           total_jual?: number | null
         }
         Update: Partial<Database["public"]["Tables"]["quotation_revisions"]["Insert"]>
-        Relationships: Rel[]
+        Relationships: [
+          { foreignKeyName: "quotation_revisions_dibuat_oleh_fkey"; columns: ["dibuat_oleh"]; isOneToOne: false; referencedRelation: "profiles"; referencedColumns: ["id"] },
+          { foreignKeyName: "quotation_revisions_project_id_fkey"; columns: ["project_id"]; isOneToOne: false; referencedRelation: "projects"; referencedColumns: ["id"] },
+        ]
       }
     }
     Views: {

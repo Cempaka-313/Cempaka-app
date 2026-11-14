@@ -11,7 +11,9 @@ Pemilik proyek: Reza (Estimator).
 Alur **BOQ → costing → revisi Excel → approval → dashboard**.
 
 ## Peran pengguna
-Sales, Estimator, PIC Proyek, Purchasing, Manajer, Owner, Finance.
+Sales, Estimator, PIC Proyek, Purchasing, Manajer, Owner, Finance, **Admin**.
+- Admin: akses penuh termasuk approval (setara Owner).
+- Hanya Admin: kelola user (tambah/nonaktifkan/ubah peran), upload template QUO, ubah `default_settings`.
 
 ## Alur approval
 - Urutan: **Estimator → Manajer → Owner**.
