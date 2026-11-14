@@ -3,7 +3,9 @@
 Aplikasi web internal untuk **Cempaka** (kontraktor interior/furniture, Bali).
 Pemilik proyek: Reza (Estimator).
 
-> Status saat ini: **belum ada kode aplikasi.** Repo ini baru berisi dokumen konteks.
+> Status saat ini: **kerangka aplikasi** (Next.js 16 + Supabase auth, login, kanban proyek, manifest PWA).
+> Next.js 16 punya perubahan besar (mis. `proxy.ts` pengganti middleware, Cache Components aktif) — baca @AGENTS.md dan dokumentasi di `node_modules/next/dist/docs/` sebelum menulis kode.
+> Data yang membaca sesi/cookie harus dibungkus `<Suspense>` (lihat `src/app/(app)/layout.tsx`).
 
 ## Ruang lingkup v1
 Alur **BOQ → costing → revisi Excel → approval → dashboard**.
