@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import { connection } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { formatDateTime, formatMoney, formatPercent } from "@/lib/format"
 import { StatusBar } from "./status-bar"
@@ -7,6 +8,7 @@ import { CommentForm } from "./comment-form"
 import { EDIT_ROLES, hasRole } from "@/lib/status"
 
 export default async function ProjectDetailPage({ params }: PageProps<"/projects/[id]">) {
+  await connection()
   const { id: idParam } = await params
   const id = Number(idParam)
   if (!Number.isInteger(id)) notFound()

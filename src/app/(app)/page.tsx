@@ -1,9 +1,11 @@
 import Link from "next/link"
+import { connection } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { PROJECT_STATUSES, STATUS_COLOR, type ProjectStatus } from "@/lib/status"
+import { PROJECT_STATUSES, STATUS_COLOR, STATUS_LABEL, type ProjectStatus } from "@/lib/status"
 
 // Tampilan kanban proyek per status (gaya Odoo).
 export default async function ProjectsKanbanPage() {
+  await connection()
   const supabase = await createClient()
   const { data: projects, error } = await supabase
     .from("projects")
@@ -29,7 +31,7 @@ export default async function ProjectsKanbanPage() {
           return (
             <section key={status} className="w-72 shrink-0">
               <header className="mb-2 flex items-center justify-between px-1">
-                <h2 className="text-sm font-semibold">{status}</h2>
+                <h2 className="text-sm font-semibold">{STATUS_LABEL[status]}</h2>
                 <span className="text-xs text-zinc-500">{items.length}</span>
               </header>
               <div className="space-y-2">
@@ -43,7 +45,7 @@ export default async function ProjectsKanbanPage() {
                     <div className="mt-2 flex items-center justify-between text-xs">
                       <span className="text-zinc-500">{p.quo_number ?? p.project_code}</span>
                       <span className={`rounded px-1.5 py-0.5 ${STATUS_COLOR[p.status as ProjectStatus]}`}>
-                        {p.status}
+                        {STATUS_LABEL[p.status as ProjectStatus] ?? p.status}
                       </span>
                     </div>
                   </Link>

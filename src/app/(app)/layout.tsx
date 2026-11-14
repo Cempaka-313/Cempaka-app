@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { Suspense } from "react"
+import { connection } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { ROLE_LABEL, type Role } from "@/lib/status"
 import { logout } from "../login/actions"
@@ -32,6 +33,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 async function UserMenu() {
+  await connection() // sesi Supabase dibaca saat request, bukan saat prerender
   const supabase = await createClient()
   const { data: claims } = await supabase.auth.getClaims()
   const userId = claims?.claims.sub

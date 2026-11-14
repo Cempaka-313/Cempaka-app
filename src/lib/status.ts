@@ -10,6 +10,16 @@ export const PROJECT_STATUSES = [
 
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number]
 
+// Label tampilan (tetap bahasa Inggris); nilai di database tetap snake_case.
+export const STATUS_LABEL: Record<ProjectStatus, string> = {
+  costing: "Costing",
+  internal_review: "Internal Review",
+  awaiting_client: "Awaiting Client",
+  confirmed: "Confirmed",
+  completed: "Completed",
+  cancelled: "Cancelled",
+}
+
 export const STATUS_COLOR: Record<ProjectStatus, string> = {
   costing: "bg-sky-100 text-sky-800",
   internal_review: "bg-amber-100 text-amber-800",
