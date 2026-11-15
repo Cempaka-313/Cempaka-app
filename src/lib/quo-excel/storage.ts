@@ -2,6 +2,8 @@
 export const QUO_BUCKET = "quotation-files"
 export const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 export const QUO_MAX_BYTES = 20 * 1024 * 1024
+/** Bucket privat foto & swatch item hasil ekstraksi Excel (migrasi item_images_bucket). */
+export const ITEM_IMAGES_BUCKET = "item-images"
 
 export function newUploadPath(projectId: number) {
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+/, "")

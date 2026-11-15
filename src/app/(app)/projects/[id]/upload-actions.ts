@@ -6,6 +6,7 @@ import { EDIT_ROLES, hasRole } from "@/lib/status"
 import { parseQuoWorkbook, QuoParseError, toItemRows } from "@/lib/quo-excel/parse"
 import { diffItems, summarizeDiff } from "@/lib/quo-excel/diff"
 import { isValidUploadPath, QUO_BUCKET, QUO_MAX_BYTES } from "@/lib/quo-excel/storage"
+import { saveItemImages } from "@/lib/quo-excel/save-images"
 import type { Json } from "@/types/database"
 
 export type UploadResult = {
@@ -97,6 +98,23 @@ export async function importRevisionExcel(projectId: number, path: string, fileN
     p_validasi: parsed.validasi as unknown as Json,
   })
   if (error) return discard(error.message)
+
+  // Foto & swatch item: disimpan setelah revisi ada; kegagalan hanya jadi peringatan.
+  const rev = created?.[0]
+  if (rev && parsed.images.length) {
+    try {
+      const img = await saveItemImages(supabase, {
+        projectId,
+        revisionId: rev.revision_id,
+        revNo: rev.rev_no,
+        images: parsed.images,
+        media: parsed.media,
+      })
+      if (img.failed) parsed.warnings.push(`${img.failed} gambar dari Excel gagal disimpan; ${img.saved} gambar tersimpan.`)
+    } catch {
+      parsed.warnings.push("Gambar dari Excel gagal disimpan; revisi tetap tersimpan tanpa gambar.")
+    }
+  }
 
   revalidatePath(`/projects/${projectId}`)
   revalidatePath("/")

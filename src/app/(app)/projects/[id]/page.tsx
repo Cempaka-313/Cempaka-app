@@ -9,6 +9,8 @@ import { CommentForm } from "./comment-form"
 import { UploadRevision } from "./upload-revision"
 import { DownloadExcel } from "./download-excel"
 import { ClampText } from "./clamp-text"
+import { ItemImage } from "./item-image"
+import { ITEM_IMAGES_BUCKET } from "@/lib/quo-excel/storage"
 import { RevisionCompare } from "./revision-compare"
 import { RevisionValidation } from "./revision-validation"
 import { PriceSummary } from "./price-summary"
@@ -71,6 +73,29 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
     : { data: null }
   const diff = currentRev && prevRev && prevItems ? diffItems(prevItems, items ?? []) : null
   const canUpload = hasRole(role, EDIT_ROLES) && !["completed", "cancelled"].includes(project.status)
+
+  // Foto produk & swatch item revisi aktif (bucket privat → signed URL 1 jam).
+  const imagesByItem = new Map<number, { produk: string[]; detail: string[] }>()
+  const itemIds = (items ?? []).map((i) => i.id)
+  if (itemIds.length) {
+    const { data: imgs } = await supabase
+      .from("project_item_images")
+      .select("item_id, url, tipe_gambar, urutan")
+      .in("item_id", itemIds)
+      .order("urutan")
+    const paths = [...new Set((imgs ?? []).map((i) => i.url))]
+    const { data: signed } = paths.length
+      ? await supabase.storage.from(ITEM_IMAGES_BUCKET).createSignedUrls(paths, 3600)
+      : { data: [] }
+    const urlByPath = new Map((signed ?? []).filter((x) => x.signedUrl).map((x) => [x.path, x.signedUrl]))
+    for (const im of imgs ?? []) {
+      const url = urlByPath.get(im.url)
+      if (!url) continue
+      const entry = imagesByItem.get(im.item_id) ?? { produk: [], detail: [] }
+      ;(im.tipe_gambar === "produk" ? entry.produk : entry.detail).push(url)
+      imagesByItem.set(im.item_id, entry)
+    }
+  }
   const approvalBlocked =
     currentRev?.selisih && !currentRev.selisih_alasan
       ? `Ajukan Approval diblok: masih ada selisih total di Rev ${currentRev.rev_no} — lihat panel Validasi total.`
@@ -183,17 +208,21 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
           <div className="max-h-[75vh] overflow-auto lg:max-h-none lg:overflow-visible">
             <table className="w-full min-w-[720px] table-fixed text-xs lg:min-w-0">
               <colgroup>
+                <col className="w-[6%]" />
+                <col className="w-[8%]" />
+                <col className="w-[17%]" />
+                <col className="w-[24%]" />
                 <col className="w-[9%]" />
-                <col className="w-[18%]" />
-                <col className="w-[26%]" />
-                <col className="w-[9%]" />
-                <col className="w-[11%]" />
-                <col className="w-[7%]" />
+                <col className="w-[10%]" />
+                <col className="w-[6%]" />
                 <col className="w-[10%]" />
                 <col className="w-[10%]" />
               </colgroup>
               <thead className="text-left text-xs text-zinc-500">
                 <tr className="[&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:border-b [&>th]:border-zinc-200 [&>th]:bg-zinc-50 [&>th]:px-2 [&>th]:py-2 [&>th]:font-medium">
+                  <th>
+                    <span className="sr-only">Foto</span>
+                  </th>
                   <th>Kode</th>
                   <th>Nama</th>
                   <th>Material by Cempaka</th>
@@ -212,12 +241,23 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
                     <Fragment key={it.id}>
                       {newGroup && (
                         <tr className="bg-zinc-50/70">
-                          <td colSpan={8} className="px-2 py-1.5 text-xs font-semibold text-zinc-600">
+                          <td colSpan={9} className="px-2 py-1.5 text-xs font-semibold text-zinc-600">
                             {it.tipe}
                           </td>
                         </tr>
                       )}
                       <tr className="border-t border-zinc-100 align-top [&>td]:px-2 [&>td]:py-2.5">
+                        <td>
+                          {imagesByItem.get(it.id)?.produk[0] ? (
+                            <ItemImage
+                              src={imagesByItem.get(it.id)!.produk[0]}
+                              alt={`${it.item_code} — ${it.nama_item ?? ""}`}
+                              className="h-10 w-10"
+                            />
+                          ) : (
+                            <div className="h-10 w-10 rounded border border-dashed border-zinc-200" aria-hidden />
+                          )}
+                        </td>
                         <td className="font-mono [overflow-wrap:anywhere]">
                           {it.item_code}
                           {(it.option_no === 2 || it.perlu_dicek || it.catatan || !it.dihitung) && (
@@ -244,7 +284,19 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
                           <ClampText text={it.nama_item} className="text-sm text-zinc-900" />
                         </td>
                         <td>
-                          <ClampText text={it.deskripsi} className="text-zinc-600" />
+                          <div className="flex items-start gap-1.5">
+                            {!!imagesByItem.get(it.id)?.detail.length && (
+                              <div className="flex shrink-0 flex-wrap gap-0.5">
+                                {imagesByItem
+                                  .get(it.id)!
+                                  .detail.slice(0, 4)
+                                  .map((src, n) => (
+                                    <ItemImage key={src} src={src} alt={`Swatch ${n + 1} — ${it.item_code}`} className="h-5 w-5" />
+                                  ))}
+                              </div>
+                            )}
+                            <ClampText text={it.deskripsi} className="min-w-0 text-zinc-600" />
+                          </div>
                         </td>
                         <td>
                           <span title={it.area ?? undefined} className="line-clamp-2 [overflow-wrap:anywhere]">
@@ -271,7 +323,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
                 })}
                 {!items?.length && (
                   <tr>
-                    <td colSpan={8} className="px-3 py-6 text-center text-zinc-500">
+                    <td colSpan={9} className="px-3 py-6 text-center text-zinc-500">
                       Belum ada item.
                     </td>
                   </tr>

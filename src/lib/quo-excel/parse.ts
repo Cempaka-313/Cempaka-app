@@ -116,6 +116,24 @@ export type ParseResult = {
   doubleCounts: DoubleCount[]
   /** Rangkuman harga di bawah Sub Total (opsi 1), null bila tidak terbaca. */
   rangkuman: Rangkuman | null
+  /** Gambar yang di-anchor ke baris item: kolom PICTURE → produk, FINISH/COLOR → detail (swatch). */
+  images: ParsedImage[]
+  /** Isi file gambar per imageId workbook (satu gambar bisa dipakai beberapa baris / sheet). */
+  media: Map<number, { data: Uint8Array; extension: string }>
+}
+
+export type ItemRef = { area: string; item_code: string; option_no: number }
+
+export type ParsedImage = {
+  sheet: string
+  row: number
+  /** Alamat sel anchor, mis. "E23". */
+  cell: string
+  tipe: "produk" | "detail"
+  imageId: number
+  /** Urutan gambar dengan tipe yang sama di baris itu (kiri → kanan, atas → bawah). */
+  urutan: number
+  items: ItemRef[]
 }
 
 export class QuoParseError extends Error {}
@@ -200,6 +218,7 @@ type Layout = {
   code: number
   desc: number
   picture: number | null
+  finish: number | null
   clientMaterial: number | null
   material1: number | null
   material2: number | null
@@ -299,6 +318,7 @@ function detectLayout(ws: Worksheet): Layout | null {
     code,
     desc,
     picture: find(/^(PICTURE|IMAGE)$/),
+    finish: find(/^FINISH\s*\/?\s*COLOU?R/),
     clientMaterial: find(/^MATERIAL BY CLIENT$|^MATERIAL$/),
     material1,
     material2,
@@ -407,6 +427,8 @@ export async function parseQuoWorkbook(
   const areas: AreaSummary[] = []
   const areaChecks: AreaCheckData[] = []
   const areaFooters: { sheet: string; values: FooterValues }[] = []
+  const images: ParsedImage[] = []
+  const media = new Map<number, { data: Uint8Array; extension: string }>()
   const doubleCounts: DoubleCount[] = []
   let noCache = 0
   let errorCells = 0
@@ -673,6 +695,7 @@ export async function parseQuoWorkbook(
     // Baris rangkuman di footer sheet area (label di kolom harga opsi 1 atau sebelahnya, nilai di kolom total).
     const footerValues = footerRow && L.price1.total ? readAreaFooter(ws, L, footerRow) : emptyFooter()
     areaFooters.push({ sheet: ws.name, values: footerValues })
+    images.push(...readItemImages(wb, ws, L, areaLines, media))
     const grandTotal = footerValues.grand
 
     areas.push({ sheet: ws.name, area, itemCount, totalJual, totalHpp, sheetSubTotal, totalJualOpt2, grandTotal })
@@ -756,7 +779,56 @@ export async function parseQuoWorkbook(
     validasi,
     doubleCounts,
     rangkuman,
+    images,
+    media,
   }
+}
+
+// Gambar sheet area yang anchor kiri-atasnya di kolom PICTURE atau FINISH/COLOR pada baris item.
+// Gambar lain (logo, tanda tangan di footer) diabaikan.
+function readItemImages(
+  wb: excelNs.Workbook,
+  ws: Worksheet,
+  L: Layout,
+  areaLines: ParsedLine[],
+  media: Map<number, { data: Uint8Array; extension: string }>,
+): ParsedImage[] {
+  const byRow = new Map<number, ParsedLine[]>()
+  for (const l of areaLines) byRow.set(l.row, [...(byRow.get(l.row) ?? []), l])
+  type Anchor = { row: number; col: number; colOff: number; rowOff: number; imageId: number }
+  const anchors: Anchor[] = []
+  for (const im of ws.getImages()) {
+    const tl = im.range.tl as unknown as { nativeRow?: number; nativeCol?: number; row: number; col: number; nativeRowOff?: number; nativeColOff?: number }
+    const row = Math.floor(tl.nativeRow ?? tl.row) + 1
+    const col = Math.floor(tl.nativeCol ?? tl.col) + 1
+    if (!byRow.has(row) || (col !== L.picture && col !== L.finish)) continue
+    anchors.push({ row, col, colOff: tl.nativeColOff ?? 0, rowOff: tl.nativeRowOff ?? 0, imageId: Number(im.imageId) })
+  }
+  anchors.sort((a, b) => a.row - b.row || a.col - b.col || a.rowOff - b.rowOff || a.colOff - b.colOff)
+
+  const out: ParsedImage[] = []
+  const counter = new Map<string, number>()
+  for (const a of anchors) {
+    if (!media.has(a.imageId)) {
+      const m = wb.getImage(a.imageId) as unknown as { buffer?: Uint8Array; extension?: string } | undefined
+      if (!m?.buffer?.length) continue
+      media.set(a.imageId, { data: new Uint8Array(m.buffer), extension: m.extension ?? "png" })
+    }
+    const tipe = a.col === L.picture ? "produk" : "detail"
+    const key = `${a.row}|${tipe}`
+    const urutan = (counter.get(key) ?? 0) + 1
+    counter.set(key, urutan)
+    out.push({
+      sheet: ws.name,
+      row: a.row,
+      cell: `${ws.getColumn(a.col).letter}${a.row}`,
+      tipe,
+      imageId: a.imageId,
+      urutan,
+      items: (byRow.get(a.row) ?? []).map((l) => ({ area: l.area, item_code: l.item_code, option_no: l.option_no })),
+    })
+  }
+  return out
 }
 
 function isPackage(l: ParsedLine) {
