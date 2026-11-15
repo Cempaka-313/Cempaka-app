@@ -1,13 +1,22 @@
 // Uji parser QUO_INT dan perbandingan revisi pada file lokal (mis. di samples/, yang tidak ikut ke git).
-// Pemakaian: node scripts/check-quo-parse.mjs <file.xlsx> [kode-proyek] [kurs-usd]
+// Pemakaian: node scripts/check-quo-parse.mjs <file.xlsx> [kode-proyek] [kurs-usd] [--expect-selisih=AREA1,AREA2]
+// --expect-selisih: gagal bila area yang disebut tidak memunculkan peringatan selisih Sub Total.
 // Butuh Node >= 23.6 (menjalankan .ts langsung).
 
 import { readFile } from "node:fs/promises"
 import assert from "node:assert/strict"
 import { parseQuoWorkbook, toItemRows } from "../src/lib/quo-excel/parse.ts"
 import { diffItems, itemKey, summarizeDiff } from "../src/lib/quo-excel/diff.ts"
+import { evaluateValidation } from "../src/lib/quo-excel/validation.ts"
 
-const [file, projectCode = null, kurs = null] = process.argv.slice(2)
+const args = process.argv.slice(2)
+const expectSelisih = args
+  .find((a) => a.startsWith("--expect-selisih="))
+  ?.slice("--expect-selisih=".length)
+  .split(",")
+  .map((a) => a.trim())
+  .filter(Boolean)
+const [file, projectCode = null, kurs = null] = args.filter((a) => !a.startsWith("--"))
 if (!file) {
   console.error("Pemakaian: node scripts/check-quo-parse.mjs <file.xlsx> [kode-proyek] [kurs-usd]")
   process.exit(1)
@@ -34,6 +43,8 @@ console.log(
 )
 const flagged = res.lines.filter((l) => l.perlu_dicek)
 console.log(`Perlu dicek: ${flagged.length} dari ${res.lines.length} baris`)
+console.log("Selisih total:")
+for (const e of res.errors) console.log("  !", e)
 console.log("Peringatan:")
 for (const w of res.warnings) console.log("  -", w)
 console.log("Contoh baris:")
@@ -47,10 +58,10 @@ for (const l of res.lines.slice(0, 6)) {
 const keys = res.lines.map(itemKey)
 assert.equal(new Set(keys).size, keys.length, "kunci (area, kode, opsi) harus unik")
 assert.ok(res.areas.every((a) => a.itemCount > 0), "setiap area harus punya item")
-const sumJual = res.lines.filter((l) => l.option_no === 1).reduce((s, l) => s + (l.total_jual ?? 0), 0)
+const sumJual = res.lines.filter((l) => l.option_no === 1 && l.dihitung).reduce((s, l) => s + (l.total_jual ?? 0), 0)
 assert.ok(Math.abs(sumJual - res.totalJual) < 0.01, "total jual revisi = jumlah baris opsi 1")
 if (res.option2) {
-  const sum2 = res.lines.filter((l) => l.option_no === 2).reduce((s, l) => s + (l.total_jual ?? 0), 0)
+  const sum2 = res.lines.filter((l) => l.option_no === 2 && l.dihitung).reduce((s, l) => s + (l.total_jual ?? 0), 0)
   assert.ok(Math.abs(sum2 - res.option2.totalJual) < 0.01, "total opsi 2 = jumlah baris opsi 2")
 }
 assert.ok(res.lines.every((l) => l.item_code && l.area), "setiap baris punya kode dan area")
@@ -61,6 +72,21 @@ assert.ok(
   "setiap baris opsi 2 punya pasangan opsi 1",
 )
 assert.ok(res.lines.every((l) => l.option_no === 1 || l.option_no === 2), "maksimal 2 opsi per item")
+
+// Validasi total
+const again = evaluateValidation(res.validasi, res.lines)
+assert.equal(again.hasDiscrepancy, res.hasDiscrepancy, "evaluasi ulang validasi konsisten")
+assert.deepEqual(again.messages, res.errors, "pesan selisih konsisten")
+for (const d of res.doubleCounts) {
+  const pair = res.lines.filter((l) => l.area === d.area && l.option_no === d.option_no && l.dobel_grup === d.setCode)
+  assert.equal(pair.filter((l) => l.dihitung).length, 1, `hitung dobel ${d.setCode}: tepat satu baris dijumlahkan`)
+}
+for (const area of expectSelisih ?? []) {
+  assert.ok(
+    res.errors.some((e) => e.startsWith(`${area}`) && e.includes("Sub Total Excel")),
+    `area ${area} harus memunculkan peringatan selisih`,
+  )
+}
 
 // Perbandingan revisi
 const rows = toItemRows(res.lines)

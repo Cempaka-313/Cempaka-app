@@ -242,7 +242,9 @@ export type Database = {
           catatan: string | null
           created_at: string
           deskripsi: string | null
+          dihitung: boolean
           dimensi: string | null
+          dobel_grup: string | null
           harga_jual_manual: boolean
           harga_jual_unit: number | null
           hpp_unit: number | null
@@ -265,7 +267,9 @@ export type Database = {
           catatan?: string | null
           created_at?: string
           deskripsi?: string | null
+          dihitung?: boolean
           dimensi?: string | null
+          dobel_grup?: string | null
           harga_jual_manual?: boolean
           harga_jual_unit?: number | null
           hpp_unit?: number | null
@@ -393,9 +397,14 @@ export type Database = {
           kurs_usd: number | null
           project_id: number
           rev_no: number
+          selisih: boolean
+          selisih_alasan: string | null
+          selisih_at: string | null
+          selisih_oleh: string | null
           sumber: string
           total_hpp: number | null
           total_jual: number | null
+          validasi: Json | null
         }
         Insert: {
           catatan?: string | null
@@ -407,14 +416,20 @@ export type Database = {
           kurs_usd?: number | null
           project_id: number
           rev_no: number
+          selisih?: boolean
+          selisih_alasan?: string | null
+          selisih_at?: string | null
+          selisih_oleh?: string | null
           sumber: string
           total_hpp?: number | null
           total_jual?: number | null
+          validasi?: Json | null
         }
         Update: Partial<Database["public"]["Tables"]["quotation_revisions"]["Insert"]>
         Relationships: [
           { foreignKeyName: "quotation_revisions_dibuat_oleh_fkey"; columns: ["dibuat_oleh"]; isOneToOne: false; referencedRelation: "profiles"; referencedColumns: ["id"] },
           { foreignKeyName: "quotation_revisions_project_id_fkey"; columns: ["project_id"]; isOneToOne: false; referencedRelation: "projects"; referencedColumns: ["id"] },
+          { foreignKeyName: "quotation_revisions_selisih_oleh_fkey"; columns: ["selisih_oleh"]; isOneToOne: false; referencedRelation: "profiles"; referencedColumns: ["id"] },
         ]
       }
     }
@@ -450,15 +465,16 @@ export type Database = {
         Args: {
           p_project_id: number
           p_excel_path: string
-          p_total_hpp: number | null
-          p_total_jual: number | null
-          p_gpm: number | null
           p_catatan: string | null
           p_items: Json
           p_log: string
+          p_validasi: Json
         }
-        Returns: { revision_id: number; rev_no: number }[]
+        Returns: { revision_id: number; rev_no: number; selisih: boolean }[]
       }
+      refresh_revision_totals: { Args: { p_revision_id: number }; Returns: boolean }
+      choose_counted_item: { Args: { p_item_id: number }; Returns: boolean }
+      set_revision_discrepancy_reason: { Args: { p_revision_id: number; p_reason: string }; Returns: undefined }
     }
     Enums: { [_ in never]: never }
     CompositeTypes: { [_ in never]: never }

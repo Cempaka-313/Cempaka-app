@@ -14,7 +14,18 @@ import { changeStatus } from "./actions"
 
 // Status bar gaya Odoo: tahapan hanya penanda (tidak bisa diklik). Perpindahan status lewat
 // tombol aksi sesuai peran; aturan sebenarnya ditegakkan RPC change_project_status di database.
-export function StatusBar({ projectId, status, role }: { projectId: number; status: string; role: string | null }) {
+export function StatusBar({
+  projectId,
+  status,
+  role,
+  approvalBlocked,
+}: {
+  projectId: number
+  status: string
+  role: string | null
+  /** Alasan "Ajukan Approval" diblok (mis. selisih total belum diberi alasan); database juga menolaknya. */
+  approvalBlocked?: string | null
+}) {
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string>()
   const flow = PROJECT_STATUSES.filter((s) => s !== "cancelled")
@@ -63,7 +74,8 @@ export function StatusBar({ projectId, status, role }: { projectId: number; stat
           <button
             key={t.to}
             type="button"
-            disabled={pending}
+            disabled={pending || (t.to === "internal_review" && !!approvalBlocked)}
+            title={t.to === "internal_review" && approvalBlocked ? approvalBlocked : undefined}
             onClick={() => onAction(t)}
             className={`rounded px-3 py-1.5 text-xs font-medium disabled:opacity-60 ${
               t.variant === "primary"
@@ -116,6 +128,9 @@ export function StatusBar({ projectId, status, role }: { projectId: number; stat
           </span>
         )}
       </div>
+      {approvalBlocked && actions.some((t) => t.to === "internal_review") && (
+        <p className="text-right text-xs text-rose-600">{approvalBlocked}</p>
+      )}
       {error && <p className="text-right text-xs text-rose-600">{error}</p>}
     </div>
   )

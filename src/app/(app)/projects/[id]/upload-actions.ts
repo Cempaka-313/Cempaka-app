@@ -13,6 +13,8 @@ export type UploadResult = {
   revNo?: number
   summary?: string
   warnings?: string[]
+  /** Selisih total (ditampilkan merah); selama ada, Ajukan Approval diblok kecuali diberi alasan. */
+  errors?: string[]
 }
 
 // File sudah di-upload browser langsung ke Storage (menghindari batas body Server Action 1MB).
@@ -80,6 +82,7 @@ export async function importRevisionExcel(projectId: number, path: string, fileN
     [parsed.quoNumber, parsed.revisiLabel].filter(Boolean).join(" · ") || null,
     `Area: ${parsed.areas.map((a) => `${a.area} (${a.itemCount} baris)`).join(", ")}`,
     `Perbandingan ${compare}`,
+    parsed.errors.length ? `Selisih total:\n${parsed.errors.map((e) => `- ${e}`).join("\n")}` : null,
     parsed.warnings.length ? `Peringatan:\n${parsed.warnings.map((w) => `- ${w}`).join("\n")}` : null,
   ]
     .filter(Boolean)
@@ -88,16 +91,14 @@ export async function importRevisionExcel(projectId: number, path: string, fileN
   const { data: created, error } = await supabase.rpc("create_quotation_revision", {
     p_project_id: projectId,
     p_excel_path: path,
-    p_total_hpp: parsed.totalHpp,
-    p_total_jual: parsed.totalJual,
-    p_gpm: parsed.gpm,
     p_catatan: catatan,
     p_items: items as unknown as Json,
-    p_log: `${fileName} — ${compare}`,
+    p_log: `${fileName} — ${compare}${parsed.errors.length ? ` — ${parsed.errors.length} selisih total` : ""}`,
+    p_validasi: parsed.validasi as unknown as Json,
   })
   if (error) return discard(error.message)
 
   revalidatePath(`/projects/${projectId}`)
   revalidatePath("/")
-  return { revNo: created?.[0]?.rev_no, summary: compare, warnings: parsed.warnings }
+  return { revNo: created?.[0]?.rev_no, summary: compare, warnings: parsed.warnings, errors: parsed.errors }
 }

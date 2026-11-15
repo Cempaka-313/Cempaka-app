@@ -22,6 +22,14 @@
 // (scripts/check-quo-parse.mjs).
 
 import * as excelNs from "exceljs"
+import {
+  evaluateValidation,
+  formulaRowRanges,
+  type AreaCheckData,
+  type RowRef,
+  type SummaryCheckData,
+  type Validasi,
+} from "./validation.ts"
 
 type ExcelModule = typeof excelNs
 type Worksheet = excelNs.Worksheet
@@ -45,15 +53,21 @@ export type ParsedItem = {
   perlu_dicek: boolean
   asumsi: string | null
   catatan: string | null
+  /** Ikut dijumlahkan ke total. False untuk baris komponen yang harganya sama dengan baris paket/set di atasnya. */
+  dihitung: boolean
+  /** Kode baris paket/set bila baris ini bagian dari pasangan kemungkinan hitung dobel. */
+  dobel_grup: string | null
 }
 
 export type ParsedLine = ParsedItem & {
   sheet: string
   row: number
-  /** Total harga jual baris (kolom total, atau qty × harga bila total kosong). Null bila baris tidak dihargai. */
+  /** Total harga jual baris = qty × harga jual. Null bila baris tidak dihargai. Lihat juga `dihitung`. */
   total_jual: number | null
   /** HPP baris = hpp_unit × qty. */
   total_hpp: number | null
+  /** Nilai kolom TOTAL PRICE di Excel untuk baris ini (pembanding qty × harga). */
+  excel_total: number | null
   excluded: boolean
 }
 
@@ -69,7 +83,11 @@ export type AreaSummary = {
   sheetSubTotal: number | null
   /** Total jual opsi 2, null bila sheet hanya 1 opsi. */
   totalJualOpt2: number | null
+  /** Grand Total opsi 1 yang tertulis di footer sheet. */
+  grandTotal: number | null
 }
+
+export type DoubleCount = { area: string; option_no: number; setCode: string; componentCode: string; harga: number }
 
 export type ParseResult = {
   lines: ParsedLine[]
@@ -88,6 +106,12 @@ export type ParseResult = {
   quoNumber: string | null
   revisiLabel: string | null
   warnings: string[]
+  /** Selisih total (Sub Total Excel vs jumlah baris, SUMMARY vs area) — ditampilkan merah. */
+  errors: string[]
+  hasDiscrepancy: boolean
+  /** Data pembanding yang disimpan di quotation_revisions.validasi. */
+  validasi: Validasi
+  doubleCounts: DoubleCount[]
 }
 
 export class QuoParseError extends Error {}
@@ -377,6 +401,8 @@ export async function parseQuoWorkbook(
   const warnings: string[] = []
   const lines: ParsedLine[] = []
   const areas: AreaSummary[] = []
+  const areaChecks: AreaCheckData[] = []
+  const doubleCounts: DoubleCount[] = []
   let noCache = 0
   let errorCells = 0
 
@@ -389,9 +415,11 @@ export async function parseQuoWorkbook(
     const seen = new Set<string>()
     let tipe: string | null = null
     let parentCode: string | null = null
-    let sheetSubTotal: number | null = null
+    let footerRow = 0
     let itemCount = 0
     const areaLines: ParsedLine[] = []
+    // Baris item utama terakhir per opsi, untuk deteksi hitung dobel paket/set vs komponennya.
+    const mainByOpt = new Map<number, ParsedLine>()
 
     for (let r = L.firstDataRow; r <= ws.rowCount; r++) {
       const c = (col: number | null): CellValue => (col ? read(ws.getCell(r, col)) : { kind: "empty" })
@@ -399,7 +427,7 @@ export async function parseQuoWorkbook(
       const aText = text(a) ?? ""
       const footer = [L.price1.unit - 1, L.price1.unit].some((col) => /^sub total/i.test(text(c(col)) ?? ""))
       if (/^remarks/i.test(aText) || footer) {
-        sheetSubTotal = num(c(L.price1.total))
+        footerRow = r
         break
       }
 
@@ -410,6 +438,7 @@ export async function parseQuoWorkbook(
       if (a.kind === "text" && num(a) == null && text(c(2)) === aText) {
         tipe = titleCase(aText.replace(/^[A-Z]\.\s*/, "")) || null
         parentCode = null
+        mainByOpt.clear()
         continue
       }
 
@@ -442,9 +471,11 @@ export async function parseQuoWorkbook(
         /not included/i.test(text(c(col)) ?? ""),
       )
 
-      // Baris kain (fabric) tidak mengisi qty; jumlahnya di kolom total konsumsi dengan unit di sebelahnya.
-      const qty = num(c(L.qty)) ?? num(c(L.fabricQty))
-      const unit = (text(c(L.unit)) || text(c(L.fabricUnit))) ?? null
+      // Baris kain (fabric): jumlahnya = total konsumsi (FABRIC CONSUMPTION TOTAL = per unit × qty induk) dengan
+      // unit di sebelahnya. Kolom qty di baris kain kadang berisi qty induk (=$R$induk), jadi tidak dipakai.
+      const fabricQty = num(c(L.fabricQty))
+      const qty = fabricQty ?? num(c(L.qty))
+      const unit = (fabricQty != null ? text(c(L.fabricUnit)) || text(c(L.unit)) : text(c(L.unit)) || text(c(L.fabricUnit))) ?? null
       const rk = rekap.get(normCode(uniqueCode)) ?? rekap.get(normCode(code))
 
       const options: { no: 1 | 2; price: PriceCols; material: number | null }[] = [
@@ -499,7 +530,7 @@ export async function parseQuoWorkbook(
         let totalJual: number | null = null
         let totalHpp: number | null = null
         if (!excluded && harga != null && qty != null) {
-          totalJual = num(c(opt.price.total)) ?? harga * qty
+          totalJual = harga * qty
           if (hpp != null) totalHpp = hpp * qty
           else if (opt.no === 1) {
             check = true
@@ -533,30 +564,129 @@ export async function parseQuoWorkbook(
           catatan: excluded ? "Not Included" : null,
           total_jual: totalJual,
           total_hpp: totalHpp,
+          excel_total: excluded ? null : num(c(opt.price.total)),
           excluded,
+          dihitung: true,
+          dobel_grup: null,
         })
+
+        // Kemungkinan hitung dobel: baris paket/set (mis. "Bed Set", kode "A & B") yang harga & qty-nya sama
+        // dengan baris komponen di bawahnya (mis. Headboard). Default: paket dihitung, komponen tidak.
+        const line = areaLines[areaLines.length - 1]
+        if (isMain) mainByOpt.set(opt.no, line)
+        else {
+          const m = mainByOpt.get(opt.no)
+          if (
+            m &&
+            !line.excluded &&
+            isPackage(m) &&
+            line.harga_jual_unit != null &&
+            line.harga_jual_unit > 0 &&
+            line.harga_jual_unit === m.harga_jual_unit &&
+            line.qty != null &&
+            line.qty === m.qty
+          ) {
+            m.dobel_grup = m.item_code
+            line.dobel_grup = m.item_code
+            line.dihitung = false
+            m.perlu_dicek = true
+            line.perlu_dicek = true
+            m.asumsi = clip(
+              [m.asumsi, `Kemungkinan hitung dobel dengan ${line.item_code} (harga sama); default yang dijumlahkan baris paket ini.`]
+                .filter(Boolean)
+                .join(" "),
+            )
+            line.asumsi = clip(
+              [line.asumsi, `Kemungkinan hitung dobel dengan paket ${m.item_code} (harga sama); default tidak dijumlahkan.`]
+                .filter(Boolean)
+                .join(" "),
+            )
+            doubleCounts.push({
+              area,
+              option_no: opt.no,
+              setCode: m.item_code,
+              componentCode: line.item_code,
+              harga: line.harga_jual_unit,
+            })
+          }
+        }
       }
     }
 
-    const opt1 = areaLines.filter((l) => l.option_no === 1)
+    const counted = (l: ParsedLine) => l.dihitung && l.total_jual != null
+    const opt1 = areaLines.filter((l) => l.option_no === 1 && counted(l))
     const totalJual = opt1.reduce((s, l) => s + (l.total_jual ?? 0), 0)
     const totalHpp = opt1.reduce((s, l) => s + (l.total_hpp ?? 0), 0)
     const totalJualOpt2 = L.price2
-      ? areaLines.filter((l) => l.option_no === 2).reduce((s, l) => s + (l.total_jual ?? 0), 0)
+      ? areaLines.filter((l) => l.option_no === 2 && counted(l)).reduce((s, l) => s + (l.total_jual ?? 0), 0)
       : null
-    if (sheetSubTotal != null && Math.abs(sheetSubTotal - totalJual) > (currency === "USD" ? 0.01 : 1)) {
-      warnings.push(
-        `${area}: Sub Total ${L.price2 ? "opsi 1 " : ""}di sheet ${money(sheetSubTotal, currency)} beda dengan jumlah baris item ${money(totalJual, currency)} — cek rentang rumus SUM Sub Total.`,
-      )
+
+    // Sub Total & rumusnya per opsi, lalu baris berharga yang berada di luar rentang rumus SUM.
+    const footerCell = (col: number | null) => (footerRow && col ? ws.getCell(footerRow, col) : null)
+    const subTotalOf = (col: number | null) => {
+      const cell = footerCell(col)
+      return cell ? num(read(cell)) : null
     }
-    areas.push({ sheet: ws.name, area, itemCount, totalJual, totalHpp, sheetSubTotal, totalJualOpt2 })
+    const formulaOf = (col: number | null) => {
+      const v = footerCell(col)?.value as unknown
+      return v && typeof v === "object" && typeof (v as { formula?: unknown }).formula === "string"
+        ? (v as { formula: string }).formula
+        : null
+    }
+    const sheetSubTotal = subTotalOf(L.price1.total)
+    const priceGroups: { no: number; price: PriceCols }[] = [{ no: 1, price: L.price1 }]
+    if (L.price2) priceGroups.push({ no: 2, price: L.price2 })
+    for (const g of priceGroups) {
+      const formula = formulaOf(g.price.total)
+      const ranges = formula && g.price.total ? formulaRowRanges(formula, ws.getColumn(g.price.total).letter) : null
+      const rowsOutside: RowRef[] | null = ranges
+        ? areaLines
+            .filter((l) => l.option_no === g.no && counted(l) && !ranges.some(([a, b]) => l.row >= a && l.row <= b))
+            .map((l) => ({ row: l.row, code: l.item_code }))
+        : null
+      const tol = currency === "USD" ? 0.01 : 1
+      const rowsTotalMismatch = areaLines
+        .filter(
+          (l) =>
+            l.option_no === g.no &&
+            counted(l) &&
+            l.excel_total != null &&
+            Math.abs((l.total_jual as number) - l.excel_total) > tol,
+        )
+        .map((l) => ({ row: l.row, code: l.item_code, excel_total: l.excel_total as number, computed: l.total_jual as number }))
+      areaChecks.push({
+        area,
+        sheet: ws.name,
+        option_no: g.no,
+        excel_subtotal: subTotalOf(g.price.total),
+        sum_formula: formula,
+        rows_outside: rowsOutside,
+        rows_total_mismatch: rowsTotalMismatch,
+      })
+    }
+
+    // Grand Total di footer sheet area (label di kolom harga opsi 1 atau sebelahnya).
+    let grandTotal: number | null = null
+    if (footerRow && L.price1.total) {
+      for (let r = footerRow; r <= Math.min(ws.rowCount, footerRow + 40); r++) {
+        const isGrand = [L.price1.unit - 1, L.price1.unit].some((col) =>
+          /^grand total/i.test(text(read(ws.getCell(r, col))) ?? ""),
+        )
+        if (isGrand) {
+          grandTotal = num(read(ws.getCell(r, L.price1.total)))
+          break
+        }
+      }
+    }
+
+    areas.push({ sheet: ws.name, area, itemCount, totalJual, totalHpp, sheetSubTotal, totalJualOpt2, grandTotal })
     lines.push(...areaLines)
   }
 
   if (!lines.length) throw new QuoParseError("Tidak ada baris item yang terbaca di sheet area.")
 
   const opt1 = lines.filter((l) => l.option_no === 1)
-  const priced = opt1.filter((l) => l.total_jual != null)
+  const priced = opt1.filter((l) => l.dihitung && l.total_jual != null)
   const withHpp = priced.filter((l) => l.total_hpp != null)
   const totalJual = priced.reduce((s, l) => s + (l.total_jual ?? 0), 0)
   const totalHpp = withHpp.reduce((s, l) => s + (l.total_hpp ?? 0), 0)
@@ -566,8 +696,8 @@ export async function parseQuoWorkbook(
   const opt2Lines = lines.filter((l) => l.option_no === 2)
   const option2 = opt2Lines.length
     ? {
-        totalJual: opt2Lines.reduce((s, l) => s + (l.total_jual ?? 0), 0),
-        pricedCount: opt2Lines.filter((l) => l.total_jual != null).length,
+        totalJual: opt2Lines.filter((l) => l.dihitung).reduce((s, l) => s + (l.total_jual ?? 0), 0),
+        pricedCount: opt2Lines.filter((l) => l.dihitung && l.total_jual != null).length,
       }
     : null
 
@@ -591,6 +721,20 @@ export async function parseQuoWorkbook(
   }
   if (errorCells) warnings.push(`${errorCells} sel berisi error Excel (mis. #REF!) di kolom qty/harga/cost.`)
   if (!rekap.size) warnings.push("Sheet REKAP tidak ditemukan atau kosong; HPP diambil dari kolom cost di sheet area.")
+  for (const d of doubleCounts) {
+    warnings.push(
+      `${d.area}${option2 ? ` (opsi ${d.option_no})` : ""}: kemungkinan hitung dobel "${d.setCode}" dan "${d.componentCode}" ` +
+        `(harga sama ${money(d.harga, currency)}); yang dijumlahkan: ${d.setCode}. Bisa diganti di halaman proyek.`,
+    )
+  }
+
+  const validasi: Validasi = {
+    currency,
+    tolerance: currency === "USD" ? 0.01 : 1,
+    areas: areaChecks,
+    summary: readSummary(wb, areas, currency),
+  }
+  const check = evaluateValidation(validasi, lines)
 
   return {
     lines,
@@ -605,6 +749,74 @@ export async function parseQuoWorkbook(
     quoNumber,
     revisiLabel,
     warnings,
+    errors: check.messages,
+    hasDiscrepancy: check.hasDiscrepancy,
+    validasi,
+    doubleCounts,
+  }
+}
+
+function isPackage(l: ParsedLine) {
+  return /\b(set|paket|package)\b/i.test(l.nama_item ?? "") || /[&+]/.test(l.item_code)
+}
+
+// SUMMARY: cari baris "Sub Total" / "Grand Total"; nilainya di kolom ber-header "AMOUNT" (opsi 1),
+// atau angka pertama di kanan label.
+function readSummary(wb: excelNs.Workbook, areas: AreaSummary[], currency: "IDR" | "USD"): SummaryCheckData | null {
+  const ws = wb.worksheets.find((w) => /summary/i.test(w.name))
+  if (!ws) return null
+  const rowCount = Math.min(ws.rowCount, 200)
+  let amountCol: number | null = null
+  for (let r = 1; r <= rowCount && amountCol == null; r++) {
+    ws.getRow(r).eachCell((cell, col) => {
+      if (amountCol == null && /AMOUNT/i.test(text(read(cell)) ?? "")) amountCol = col
+    })
+  }
+  let subTotal: number | null = null
+  let grandTotal: number | null = null
+  for (let r = 1; r <= rowCount; r++) {
+    let labelCol = 0
+    let kind: "sub" | "grand" | null = null
+    ws.getRow(r).eachCell((cell, col) => {
+      if (kind) return
+      const t = text(read(cell)) ?? ""
+      if (/^sub total/i.test(t)) {
+        kind = "sub"
+        labelCol = col
+      } else if (/^grand total/i.test(t)) {
+        kind = "grand"
+        labelCol = col
+      }
+    })
+    if (!kind) continue
+    let value: number | null = amountCol ? num(read(ws.getCell(r, amountCol))) : null
+    for (let c = labelCol + 1; value == null && c <= labelCol + 20; c++) value = num(read(ws.getCell(r, c)))
+    if (kind === "sub" && subTotal == null) subTotal = value
+    if (kind === "grand" && grandTotal == null) grandTotal = value
+  }
+
+  if (subTotal != null) {
+    return {
+      sheet: ws.name,
+      sub_total: subTotal,
+      grand_total: grandTotal,
+      mode: "rows",
+      compare_value: subTotal,
+      areas_grand_total: null,
+      static_mismatch: false,
+    }
+  }
+  if (grandTotal == null) return null
+  const tolerance = currency === "USD" ? 0.01 : 1
+  const areasGrand = areas.every((a) => a.grandTotal != null) ? areas.reduce((s, a) => s + (a.grandTotal ?? 0), 0) : null
+  return {
+    sheet: ws.name,
+    sub_total: null,
+    grand_total: grandTotal,
+    mode: "static",
+    compare_value: grandTotal,
+    areas_grand_total: areasGrand,
+    static_mismatch: areasGrand != null && Math.abs(areasGrand - grandTotal) > tolerance,
   }
 }
 
@@ -624,5 +836,7 @@ export function toItemRows(lines: ParsedLine[]): ParsedItem[] {
     perlu_dicek: l.perlu_dicek,
     asumsi: l.asumsi,
     catatan: l.catatan,
+    dihitung: l.dihitung,
+    dobel_grup: l.dobel_grup,
   }))
 }

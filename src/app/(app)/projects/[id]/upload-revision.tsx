@@ -58,6 +58,13 @@ export function UploadRevision({ projectId }: { projectId: number }) {
           <p className="font-semibold">
             Rev {result.revNo} tersimpan — {result.summary}.
           </p>
+          {!!result.errors?.length && (
+            <ul className="mt-1 list-disc space-y-0.5 rounded bg-rose-50 py-1 pl-5 pr-2 font-medium text-rose-700">
+              {result.errors.map((e) => (
+                <li key={e}>{e}</li>
+              ))}
+            </ul>
+          )}
           {!!result.warnings?.length && (
             <ul className="mt-1 list-disc space-y-0.5 pl-4 text-amber-800">
               {result.warnings.map((w) => (

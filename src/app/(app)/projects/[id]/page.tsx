@@ -10,6 +10,7 @@ import { UploadRevision } from "./upload-revision"
 import { DownloadExcel } from "./download-excel"
 import { ClampText } from "./clamp-text"
 import { RevisionCompare } from "./revision-compare"
+import { RevisionValidation } from "./revision-validation"
 import { EDIT_ROLES, hasRole } from "@/lib/status"
 import { diffItems } from "@/lib/quo-excel/diff"
 
@@ -32,7 +33,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
 
   let itemsQuery = supabase
     .from("project_items")
-    .select("id, item_code, nama_item, tipe, area, dimensi, qty, unit, option_no, hpp_unit, harga_jual_unit, perlu_dicek, asumsi, catatan, deskripsi")
+    .select("id, item_code, nama_item, tipe, area, dimensi, qty, unit, option_no, hpp_unit, harga_jual_unit, perlu_dicek, asumsi, catatan, deskripsi, dihitung, dobel_grup")
     .eq("project_id", id)
     .order("id")
   itemsQuery = project.current_revision_id
@@ -44,7 +45,9 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
       itemsQuery,
       supabase
         .from("quotation_revisions")
-        .select("id, rev_no, sumber, total_hpp, total_jual, gpm, catatan, excel_path, created_at, pembuat:profiles!quotation_revisions_dibuat_oleh_fkey(nama)")
+        .select(
+          "id, rev_no, sumber, total_hpp, total_jual, gpm, catatan, excel_path, created_at, validasi, selisih, selisih_alasan, selisih_at, pembuat:profiles!quotation_revisions_dibuat_oleh_fkey(nama), penyetuju_selisih:profiles!quotation_revisions_selisih_oleh_fkey(nama)",
+        )
         .eq("project_id", id)
         .order("rev_no", { ascending: false }),
       supabase
@@ -67,6 +70,10 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
     : { data: null }
   const diff = currentRev && prevRev && prevItems ? diffItems(prevItems, items ?? []) : null
   const canUpload = hasRole(role, EDIT_ROLES) && !["completed", "cancelled"].includes(project.status)
+  const approvalBlocked =
+    currentRev?.selisih && !currentRev.selisih_alasan
+      ? `Ajukan Approval diblok: masih ada selisih total di Rev ${currentRev.rev_no} — lihat panel Validasi total.`
+      : null
   const perluDicek = items?.filter((i) => i.perlu_dicek).length ?? 0
 
   return (
@@ -79,7 +86,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
             </Link>{" "}
             / <span className="text-zinc-800">{project.project_code}</span>
           </nav>
-          <StatusBar projectId={project.id} status={project.status} role={role ?? null} />
+          <StatusBar projectId={project.id} status={project.status} role={role ?? null} approvalBlocked={approvalBlocked} />
         </div>
 
         <section className="rounded border border-zinc-200 bg-white">
@@ -147,6 +154,16 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
           </ul>
         </section>
 
+        {currentRev && (
+          <RevisionValidation
+            projectId={project.id}
+            revision={currentRev}
+            items={items ?? []}
+            jenis={project.jenis}
+            canEdit={hasRole(role, EDIT_ROLES)}
+          />
+        )}
+
         <section id="items" className="rounded border border-zinc-200 bg-white">
           <h2 className="border-b border-zinc-200 px-4 py-2 font-semibold">Item</h2>
           {/* Desktop (lg+): tabel muat penuh, lebar kolom dalam persen, header sticky terhadap halaman.
@@ -192,10 +209,15 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
                       <tr className="border-t border-zinc-100 align-top [&>td]:px-2 [&>td]:py-2.5">
                         <td className="font-mono [overflow-wrap:anywhere]">
                           {it.item_code}
-                          {(it.option_no === 2 || it.perlu_dicek || it.catatan) && (
+                          {(it.option_no === 2 || it.perlu_dicek || it.catatan || !it.dihitung) && (
                             <div className="mt-1 flex flex-wrap gap-1 font-sans">
                               {it.option_no === 2 && <span className="rounded bg-zinc-200 px-1">Opsi 2</span>}
                               {it.catatan && <span className="rounded bg-zinc-100 px-1 text-zinc-600">{it.catatan}</span>}
+                              {!it.dihitung && (
+                                <span title="Tidak dijumlahkan ke total (kemungkinan hitung dobel)" className="rounded bg-zinc-200 px-1 text-zinc-600 line-through">
+                                  total
+                                </span>
+                              )}
                               {it.perlu_dicek && (
                                 <span
                                   title={it.asumsi ?? undefined}
