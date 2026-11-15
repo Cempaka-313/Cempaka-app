@@ -113,6 +113,36 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
           </div>
         </section>
 
+        <section id="revisi" className="rounded border border-zinc-200 bg-white">
+          <div className="flex flex-wrap items-start justify-between gap-2 border-b border-zinc-200 px-4 py-2">
+            <h2 className="font-semibold">Riwayat revisi</h2>
+            {canUpload && <UploadRevision projectId={project.id} />}
+          </div>
+          <ul className="divide-y divide-zinc-100 text-sm">
+            {(revisions ?? []).map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2">
+                <span className="font-semibold">Rev {r.rev_no}</span>
+                {r.id === project.current_revision_id && (
+                  <span className="rounded bg-emerald-100 px-1.5 text-xs text-emerald-800">aktif</span>
+                )}
+                <span className="text-zinc-500">{r.sumber}</span>
+                <span>{formatMoney(r.total_jual, project.jenis)}</span>
+                <span className="text-zinc-500">GPM {formatPercent(r.gpm)}</span>
+                <span className="ml-auto text-xs text-zinc-500">
+                  {r.pembuat?.nama ?? "—"} · {formatDateTime(r.created_at)}
+                </span>
+                {r.catatan && (
+                  <details className="w-full text-xs text-zinc-600">
+                    <summary className="cursor-pointer text-zinc-500">Catatan</summary>
+                    <p className="mt-1 whitespace-pre-line">{r.catatan}</p>
+                  </details>
+                )}
+              </li>
+            ))}
+            {!revisions?.length && <li className="px-4 py-6 text-center text-zinc-500">Belum ada revisi.</li>}
+          </ul>
+        </section>
+
         <section id="items" className="rounded border border-zinc-200 bg-white">
           <h2 className="border-b border-zinc-200 px-4 py-2 font-semibold">Item</h2>
           <div className="overflow-x-auto">
@@ -170,36 +200,6 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
         {diff && currentRev && prevRev && (
           <RevisionCompare before={prevRev} after={currentRev} diff={diff} jenis={project.jenis} />
         )}
-
-        <section id="revisi" className="rounded border border-zinc-200 bg-white">
-          <div className="flex flex-wrap items-start justify-between gap-2 border-b border-zinc-200 px-4 py-2">
-            <h2 className="font-semibold">Riwayat revisi</h2>
-            {canUpload && <UploadRevision projectId={project.id} />}
-          </div>
-          <ul className="divide-y divide-zinc-100 text-sm">
-            {(revisions ?? []).map((r) => (
-              <li key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2">
-                <span className="font-semibold">Rev {r.rev_no}</span>
-                {r.id === project.current_revision_id && (
-                  <span className="rounded bg-emerald-100 px-1.5 text-xs text-emerald-800">aktif</span>
-                )}
-                <span className="text-zinc-500">{r.sumber}</span>
-                <span>{formatMoney(r.total_jual, project.jenis)}</span>
-                <span className="text-zinc-500">GPM {formatPercent(r.gpm)}</span>
-                <span className="ml-auto text-xs text-zinc-500">
-                  {r.pembuat?.nama ?? "—"} · {formatDateTime(r.created_at)}
-                </span>
-                {r.catatan && (
-                  <details className="w-full text-xs text-zinc-600">
-                    <summary className="cursor-pointer text-zinc-500">Catatan</summary>
-                    <p className="mt-1 whitespace-pre-line">{r.catatan}</p>
-                  </details>
-                )}
-              </li>
-            ))}
-            {!revisions?.length && <li className="px-4 py-6 text-center text-zinc-500">Belum ada revisi.</li>}
-          </ul>
-        </section>
       </div>
 
       {/* Chatter */}
