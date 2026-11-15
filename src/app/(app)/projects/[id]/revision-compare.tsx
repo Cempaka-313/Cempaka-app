@@ -73,6 +73,7 @@ function label(i: DiffItem) {
     <>
       <span className="font-mono text-xs">{i.item_code}</span>
       {i.area && <span className="ml-1 text-xs text-zinc-500">({i.area})</span>}
+      {i.option_no === 2 && <span className="ml-1 rounded bg-zinc-200 px-1 text-xs">Opsi 2</span>}
       <span className="ml-2">{i.nama_item ?? "—"}</span>
     </>
   )

@@ -7,6 +7,7 @@ import { StatusBar } from "./status-bar"
 import { CommentForm } from "./comment-form"
 import { UploadRevision } from "./upload-revision"
 import { DownloadExcel } from "./download-excel"
+import { ItemMaterial } from "./item-material"
 import { RevisionCompare } from "./revision-compare"
 import { EDIT_ROLES, hasRole } from "@/lib/status"
 import { diffItems } from "@/lib/quo-excel/diff"
@@ -30,7 +31,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
 
   let itemsQuery = supabase
     .from("project_items")
-    .select("id, item_code, nama_item, tipe, area, dimensi, qty, unit, option_no, hpp_unit, harga_jual_unit, perlu_dicek, asumsi, catatan")
+    .select("id, item_code, nama_item, tipe, area, dimensi, qty, unit, option_no, hpp_unit, harga_jual_unit, perlu_dicek, asumsi, catatan, deskripsi")
     .eq("project_id", id)
     .order("id")
   itemsQuery = project.current_revision_id
@@ -174,6 +175,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
                     </td>
                     <td className="px-3 py-2">
                       {it.nama_item ?? "—"}
+                      <ItemMaterial text={it.deskripsi} />
                       {it.tipe && <div className="text-xs text-zinc-500">{it.tipe}</div>}
                       {it.catatan && <div className="text-xs text-zinc-500">{it.catatan}</div>}
                       {it.perlu_dicek && it.asumsi && <div className="text-xs text-amber-800">{it.asumsi}</div>}

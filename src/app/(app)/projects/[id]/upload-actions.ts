@@ -35,7 +35,7 @@ export async function importRevisionExcel(projectId: number, path: string, fileN
 
   const { data: project } = await supabase
     .from("projects")
-    .select("id, project_code, current_revision_id")
+    .select("id, project_code, jenis, kurs_usd, current_revision_id")
     .eq("id", projectId)
     .maybeSingle()
   if (!project) return discard("Proyek tidak ditemukan.")
@@ -46,9 +46,18 @@ export async function importRevisionExcel(projectId: number, path: string, fileN
 
   let parsed
   try {
-    parsed = await parseQuoWorkbook(await blob.arrayBuffer(), { projectCode: project.project_code })
+    parsed = await parseQuoWorkbook(await blob.arrayBuffer(), {
+      projectCode: project.project_code,
+      kursUsd: project.kurs_usd,
+    })
   } catch (e) {
     return discard(e instanceof QuoParseError ? e.message : "Gagal membaca file Excel.")
+  }
+  const expected = project.jenis === "export" ? "USD" : "IDR"
+  if (parsed.currency !== expected) {
+    parsed.warnings.unshift(
+      `Harga di file dalam ${parsed.currency}, tetapi proyek berjenis ${project.jenis === "export" ? "Export (USD)" : "Lokal (IDR)"} — periksa jenis proyek atau file.`,
+    )
   }
 
   const items = toItemRows(parsed.lines)
