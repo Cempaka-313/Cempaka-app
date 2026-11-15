@@ -442,6 +442,10 @@ export type Database = {
     }
     Functions: {
       app_role: { Args: never; Returns: string }
+      change_project_status: {
+        Args: { p_project_id: number; p_next: string; p_reason?: string | null }
+        Returns: undefined
+      }
     }
     Enums: { [_ in never]: never }
     CompositeTypes: { [_ in never]: never }

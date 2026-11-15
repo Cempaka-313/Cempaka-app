@@ -12,34 +12,25 @@ async function currentUserId() {
   return { supabase, userId: data?.claims.sub }
 }
 
-export async function changeStatus(projectId: number, next: ProjectStatus): Promise<ActionState> {
+// Validasi transisi + peran, update status, activity_log, dan approvals semuanya dilakukan
+// atomik oleh RPC change_project_status di database (update status langsung ditolak trigger).
+export async function changeStatus(projectId: number, next: ProjectStatus, reason?: string): Promise<ActionState> {
   if (!PROJECT_STATUSES.includes(next)) return { error: "Status tidak dikenal." }
+  const trimmed = reason?.trim() || null
+  if (next === "cancelled" && !trimmed) return { error: "Alasan pembatalan wajib diisi." }
+
   const { supabase, userId } = await currentUserId()
   if (!userId) return { error: "Sesi berakhir, silakan login ulang." }
 
-  const { data: project } = await supabase.from("projects").select("status").eq("id", projectId).single()
-  if (!project) return { error: "Proyek tidak ditemukan." }
-  if (project.status === next) return {}
-
-  // RLS hanya mengizinkan estimator/manajer/owner; bila ditolak, tidak ada baris yang berubah.
-  const { data: updated, error } = await supabase
-    .from("projects")
-    .update({ status: next, updated_at: new Date().toISOString() })
-    .eq("id", projectId)
-    .select("id")
-  if (error) return { error: error.message }
-  if (!updated?.length) return { error: "Anda tidak punya izin mengubah status proyek ini." }
-
-  await supabase.from("activity_log").insert({
-    project_id: projectId,
-    user_id: userId,
-    aksi: "ubah_status",
-    objek: "status",
-    nilai_lama: project.status,
-    nilai_baru: next,
+  const { error } = await supabase.rpc("change_project_status", {
+    p_project_id: projectId,
+    p_next: next,
+    p_reason: trimmed,
   })
+  if (error) return { error: error.message }
 
   revalidatePath(`/projects/${projectId}`)
+  revalidatePath("/")
   return {}
 }
 

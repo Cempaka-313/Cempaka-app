@@ -5,7 +5,6 @@ import { createClient } from "@/lib/supabase/server"
 import { formatDateTime, formatMoney, formatPercent } from "@/lib/format"
 import { StatusBar } from "./status-bar"
 import { CommentForm } from "./comment-form"
-import { EDIT_ROLES, hasRole } from "@/lib/status"
 
 export default async function ProjectDetailPage({ params }: PageProps<"/projects/[id]">) {
   await connection()
@@ -52,7 +51,6 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
       supabase.from("project_files").select("id", { count: "exact", head: true }).eq("project_id", id),
     ])
 
-  const canEdit = hasRole(role, EDIT_ROLES)
   const currentRev = revisions?.find((r) => r.id === project.current_revision_id)
   const perluDicek = items?.filter((i) => i.perlu_dicek).length ?? 0
 
@@ -66,7 +64,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
             </Link>{" "}
             / <span className="text-zinc-800">{project.project_code}</span>
           </nav>
-          <StatusBar projectId={project.id} status={project.status} canEdit={canEdit} />
+          <StatusBar projectId={project.id} status={project.status} role={role ?? null} />
         </div>
 
         <section className="rounded border border-zinc-200 bg-white">

@@ -61,6 +61,35 @@ export const APPROVER_ROLES: readonly Role[] = ["manajer", "owner", "admin"]
 // Khusus admin: kelola user, template QUO, default_settings.
 export const ADMIN_ROLES: readonly Role[] = ["admin"]
 
+// Transisi status yang diizinkan (cermin RPC change_project_status di database — DB yang menegakkan).
+// `cancelled` bisa dari status mana pun (wajib alasan), lihat CANCEL_ROLES.
+export type StatusTransition = {
+  from: ProjectStatus
+  to: ProjectStatus
+  label: string
+  roles: readonly Role[]
+  variant: "primary" | "secondary"
+  reason?: "optional" | "required"
+}
+
+export const STATUS_TRANSITIONS: readonly StatusTransition[] = [
+  { from: "costing", to: "internal_review", label: "Ajukan Approval", roles: ["estimator", "admin"], variant: "primary" },
+  { from: "internal_review", to: "awaiting_client", label: "Approve", roles: APPROVER_ROLES, variant: "primary" },
+  { from: "internal_review", to: "costing", label: "Minta Revisi", roles: APPROVER_ROLES, variant: "secondary", reason: "optional" },
+  { from: "awaiting_client", to: "confirmed", label: "Konfirmasi Klien", roles: EDIT_ROLES, variant: "primary" },
+  { from: "confirmed", to: "completed", label: "Selesai", roles: APPROVER_ROLES, variant: "primary" },
+]
+
+export const CANCEL_ROLES: readonly Role[] = EDIT_ROLES
+
+export function allowedTransitions(status: string, role: string | null | undefined) {
+  return STATUS_TRANSITIONS.filter((t) => t.from === status && hasRole(role, t.roles))
+}
+
+export function canCancel(status: string, role: string | null | undefined) {
+  return status !== "cancelled" && hasRole(role, CANCEL_ROLES)
+}
+
 export function hasRole(role: string | null | undefined, allowed: readonly Role[]) {
   return !!role && (allowed as readonly string[]).includes(role)
 }
