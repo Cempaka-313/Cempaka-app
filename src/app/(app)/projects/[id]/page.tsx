@@ -149,7 +149,17 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
         <section id="items" className="rounded border border-zinc-200 bg-white">
           <h2 className="border-b border-zinc-200 px-4 py-2 font-semibold">Item</h2>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            {/* table-fixed + lebar per kolom; Nama mengambil sisa ruang (min 280px lewat min-width tabel). */}
+            <table className="w-full min-w-[990px] table-fixed text-sm">
+              <colgroup>
+                <col className="w-[90px]" />
+                <col />
+                <col className="w-[110px]" />
+                <col className="w-[160px]" />
+                <col className="w-[90px]" />
+                <col className="w-[130px]" />
+                <col className="w-[130px]" />
+              </colgroup>
               <thead className="bg-zinc-50 text-left text-xs text-zinc-500">
                 <tr>
                   <th className="px-3 py-2">Kode</th>
@@ -163,30 +173,38 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
               </thead>
               <tbody>
                 {(items ?? []).map((it) => (
-                  <tr key={it.id} className="border-t border-zinc-100">
-                    <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
+                  <tr key={it.id} className="border-t border-zinc-100 align-top">
+                    <td className="px-3 py-3 font-mono text-xs [overflow-wrap:anywhere]">
                       {it.item_code}
-                      {it.option_no === 2 && <span className="ml-1 rounded bg-zinc-200 px-1">Opsi 2</span>}
-                      {it.perlu_dicek && (
-                        <span title={it.asumsi ?? undefined} className="ml-1 cursor-help rounded bg-amber-200 px-1 text-amber-900">
-                          cek
-                        </span>
+                      {(it.option_no === 2 || it.perlu_dicek) && (
+                        <div className="mt-1 flex flex-wrap gap-1 font-sans">
+                          {it.option_no === 2 && <span className="rounded bg-zinc-200 px-1">Opsi 2</span>}
+                          {it.perlu_dicek && (
+                            <span title={it.asumsi ?? undefined} className="cursor-help rounded bg-amber-200 px-1 text-amber-900">
+                              cek
+                            </span>
+                          )}
+                        </div>
                       )}
                     </td>
-                    <td className="px-3 py-2">
-                      {it.nama_item ?? "—"}
+                    <td className="px-3 py-3">
+                      <div className="break-words">{it.nama_item ?? "—"}</div>
                       <ItemMaterial text={it.deskripsi} />
-                      {it.tipe && <div className="text-xs text-zinc-500">{it.tipe}</div>}
+                      {it.tipe && <div className="mt-0.5 text-xs text-zinc-500">{it.tipe}</div>}
                       {it.catatan && <div className="text-xs text-zinc-500">{it.catatan}</div>}
-                      {it.perlu_dicek && it.asumsi && <div className="text-xs text-amber-800">{it.asumsi}</div>}
+                      {it.perlu_dicek && it.asumsi && (
+                        <div title={it.asumsi} className="mt-0.5 line-clamp-2 text-xs text-amber-800">
+                          {it.asumsi}
+                        </div>
+                      )}
                     </td>
-                    <td className="px-3 py-2">{it.area ?? "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2">{it.dimensi ?? "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right">
+                    <td className="break-words px-3 py-3">{it.area ?? "—"}</td>
+                    <td className="break-words px-3 py-3">{it.dimensi ?? "—"}</td>
+                    <td className="px-3 py-3 text-right">
                       {it.qty ?? "—"} {it.unit}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right">{formatMoney(it.hpp_unit, project.jenis)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right">{formatMoney(it.harga_jual_unit, project.jenis)}</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-right">{formatMoney(it.hpp_unit, project.jenis)}</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-right">{formatMoney(it.harga_jual_unit, project.jenis)}</td>
                   </tr>
                 ))}
                 {!items?.length && (
