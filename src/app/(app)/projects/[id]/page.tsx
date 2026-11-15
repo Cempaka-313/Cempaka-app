@@ -6,6 +6,7 @@ import { formatDateTime, formatMoney, formatPercent } from "@/lib/format"
 import { StatusBar } from "./status-bar"
 import { CommentForm } from "./comment-form"
 import { UploadRevision } from "./upload-revision"
+import { DownloadExcel } from "./download-excel"
 import { RevisionCompare } from "./revision-compare"
 import { EDIT_ROLES, hasRole } from "@/lib/status"
 import { diffItems } from "@/lib/quo-excel/diff"
@@ -41,7 +42,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
       itemsQuery,
       supabase
         .from("quotation_revisions")
-        .select("id, rev_no, sumber, total_hpp, total_jual, gpm, catatan, created_at, pembuat:profiles!quotation_revisions_dibuat_oleh_fkey(nama)")
+        .select("id, rev_no, sumber, total_hpp, total_jual, gpm, catatan, excel_path, created_at, pembuat:profiles!quotation_revisions_dibuat_oleh_fkey(nama)")
         .eq("project_id", id)
         .order("rev_no", { ascending: false }),
       supabase
@@ -128,6 +129,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
                 <span className="text-zinc-500">{r.sumber}</span>
                 <span>{formatMoney(r.total_jual, project.jenis)}</span>
                 <span className="text-zinc-500">GPM {formatPercent(r.gpm)}</span>
+                {r.excel_path && <DownloadExcel projectId={project.id} revisionId={r.id} />}
                 <span className="ml-auto text-xs text-zinc-500">
                   {r.pembuat?.nama ?? "—"} · {formatDateTime(r.created_at)}
                 </span>
