@@ -11,6 +11,7 @@ import { DownloadExcel } from "./download-excel"
 import { ClampText } from "./clamp-text"
 import { RevisionCompare } from "./revision-compare"
 import { RevisionValidation } from "./revision-validation"
+import { PriceSummary } from "./price-summary"
 import { EDIT_ROLES, hasRole } from "@/lib/status"
 import { diffItems } from "@/lib/quo-excel/diff"
 
@@ -46,7 +47,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
       supabase
         .from("quotation_revisions")
         .select(
-          "id, rev_no, sumber, total_hpp, total_jual, gpm, catatan, excel_path, created_at, validasi, selisih, selisih_alasan, selisih_at, pembuat:profiles!quotation_revisions_dibuat_oleh_fkey(nama), penyetuju_selisih:profiles!quotation_revisions_selisih_oleh_fkey(nama)",
+          "id, rev_no, sumber, total_hpp, total_jual, gpm, catatan, excel_path, created_at, validasi, selisih, selisih_alasan, selisih_at, sub_total_excel, delivery, delivery_excluded, total_after_delivery, dpp_lainnya, vat, grand_total, rangkuman_sumber, pembuat:profiles!quotation_revisions_dibuat_oleh_fkey(nama), penyetuju_selisih:profiles!quotation_revisions_selisih_oleh_fkey(nama)",
         )
         .eq("project_id", id)
         .order("rev_no", { ascending: false }),
@@ -119,6 +120,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
                 <Stat label="GPM" value={formatPercent(currentRev.gpm)} />
               </div>
             )}
+            {currentRev && <PriceSummary rev={currentRev} jenis={project.jenis} className="mt-3" />}
             {project.catatan && <p className="mt-3 whitespace-pre-line text-sm text-zinc-600">{project.catatan}</p>}
           </div>
         </section>
@@ -138,10 +140,19 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
                 <span className="text-zinc-500">{r.sumber}</span>
                 <span>{formatMoney(r.total_jual, project.jenis)}</span>
                 <span className="text-zinc-500">GPM {formatPercent(r.gpm)}</span>
+                {r.grand_total != null && (
+                  <span className="text-zinc-500">Grand Total {formatMoney(r.grand_total, project.jenis)}</span>
+                )}
                 {r.excel_path && <DownloadExcel projectId={project.id} revisionId={r.id} />}
                 <span className="ml-auto text-xs text-zinc-500">
                   {r.pembuat?.nama ?? "—"} · {formatDateTime(r.created_at)}
                 </span>
+                {r.grand_total != null && (
+                  <details className="w-full text-xs text-zinc-600">
+                    <summary className="cursor-pointer text-zinc-500">Rangkuman harga</summary>
+                    <PriceSummary rev={r} jenis={project.jenis} compact className="mt-1 max-w-md" />
+                  </details>
+                )}
                 {r.catatan && (
                   <details className="w-full text-xs text-zinc-600">
                     <summary className="cursor-pointer text-zinc-500">Catatan</summary>

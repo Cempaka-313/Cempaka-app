@@ -38,6 +38,57 @@ export type Validasi = {
   tolerance: number
   areas: AreaCheckData[]
   summary: SummaryCheckData | null
+  /** Rangkuman harga di bawah Sub Total (opsi 1); disalin ke kolom quotation_revisions saat upload. */
+  rangkuman?: Rangkuman | null
+}
+
+/** Baris di bawah Sub Total di Excel (opsi 1). Null = tidak ada / tidak terbaca. */
+export type Rangkuman = {
+  /** Asal angka: nama sheet SUMMARY, atau daftar sheet area yang footer-nya dijumlahkan. */
+  sumber: string
+  sub_total: number | null
+  delivery: number | null
+  /** Delivery ditulis "Excluded" (umumnya proyek export). */
+  delivery_excluded: boolean
+  total_after_delivery: number | null
+  dpp_lainnya: number | null
+  vat: number | null
+  grand_total: number | null
+}
+
+/** Cek DPP Lainnya = 11/12 × Total After Delivery dan VAT = 12% × DPP (lokal); export tanpa VAT. */
+export function checkRangkuman(r: Rangkuman, currency: "IDR" | "USD"): string[] {
+  const money = (n: number) => formatValidationMoney(n, currency)
+  const tol = currency === "USD" ? 0.01 : 1
+  const out: string[] = []
+  if (currency === "IDR") {
+    if (r.total_after_delivery != null && r.dpp_lainnya != null) {
+      const expected = (r.total_after_delivery * 11) / 12
+      if (Math.abs(r.dpp_lainnya - expected) > tol) {
+        out.push(
+          `DPP Lainnya di Excel ${money(r.dpp_lainnya)}, seharusnya 11/12 × Total After Delivery = ${money(expected)} ` +
+            `(selisih ${money(Math.abs(r.dpp_lainnya - expected))}).`,
+        )
+      }
+    }
+    if (r.dpp_lainnya != null && r.vat != null) {
+      const expected = r.dpp_lainnya * 0.12
+      if (Math.abs(r.vat - expected) > tol) {
+        out.push(
+          `VAT 12% di Excel ${money(r.vat)}, seharusnya 12% × DPP = ${money(expected)} ` +
+            `(selisih ${money(Math.abs(r.vat - expected))}).`,
+        )
+      }
+    }
+  } else {
+    if (r.vat != null && Math.abs(r.vat) > tol) {
+      out.push(`Proyek export seharusnya tanpa VAT, tetapi Excel berisi VAT ${money(r.vat)}.`)
+    }
+    if (!r.delivery_excluded && r.delivery != null && Math.abs(r.delivery) > tol) {
+      out.push(`Delivery proyek export biasanya "Excluded", tetapi Excel berisi ${money(r.delivery)}.`)
+    }
+  }
+  return out
 }
 
 export type CountableItem = {

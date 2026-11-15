@@ -23,9 +23,11 @@
 
 import * as excelNs from "exceljs"
 import {
+  checkRangkuman,
   evaluateValidation,
   formulaRowRanges,
   type AreaCheckData,
+  type Rangkuman,
   type RowRef,
   type SummaryCheckData,
   type Validasi,
@@ -112,6 +114,8 @@ export type ParseResult = {
   /** Data pembanding yang disimpan di quotation_revisions.validasi. */
   validasi: Validasi
   doubleCounts: DoubleCount[]
+  /** Rangkuman harga di bawah Sub Total (opsi 1), null bila tidak terbaca. */
+  rangkuman: Rangkuman | null
 }
 
 export class QuoParseError extends Error {}
@@ -402,6 +406,7 @@ export async function parseQuoWorkbook(
   const lines: ParsedLine[] = []
   const areas: AreaSummary[] = []
   const areaChecks: AreaCheckData[] = []
+  const areaFooters: { sheet: string; values: FooterValues }[] = []
   const doubleCounts: DoubleCount[] = []
   let noCache = 0
   let errorCells = 0
@@ -665,19 +670,10 @@ export async function parseQuoWorkbook(
       })
     }
 
-    // Grand Total di footer sheet area (label di kolom harga opsi 1 atau sebelahnya).
-    let grandTotal: number | null = null
-    if (footerRow && L.price1.total) {
-      for (let r = footerRow; r <= Math.min(ws.rowCount, footerRow + 40); r++) {
-        const isGrand = [L.price1.unit - 1, L.price1.unit].some((col) =>
-          /^grand total/i.test(text(read(ws.getCell(r, col))) ?? ""),
-        )
-        if (isGrand) {
-          grandTotal = num(read(ws.getCell(r, L.price1.total)))
-          break
-        }
-      }
-    }
+    // Baris rangkuman di footer sheet area (label di kolom harga opsi 1 atau sebelahnya, nilai di kolom total).
+    const footerValues = footerRow && L.price1.total ? readAreaFooter(ws, L, footerRow) : emptyFooter()
+    areaFooters.push({ sheet: ws.name, values: footerValues })
+    const grandTotal = footerValues.grand
 
     areas.push({ sheet: ws.name, area, itemCount, totalJual, totalHpp, sheetSubTotal, totalJualOpt2, grandTotal })
     lines.push(...areaLines)
@@ -728,11 +724,17 @@ export async function parseQuoWorkbook(
     )
   }
 
+  const summarySheet = wb.worksheets.find((w) => /summary/i.test(w.name))
+  const summaryValues = summarySheet ? scanSummary(summarySheet) : null
+  const rangkuman = buildRangkuman(summarySheet?.name ?? null, summaryValues, areaFooters)
+  if (rangkuman) warnings.push(...checkRangkuman(rangkuman, currency))
+
   const validasi: Validasi = {
     currency,
     tolerance: currency === "USD" ? 0.01 : 1,
     areas: areaChecks,
-    summary: readSummary(wb, areas, currency),
+    summary: summarySheet && summaryValues ? summaryCheck(summarySheet.name, summaryValues, areas, currency) : null,
+    rangkuman,
   }
   const check = evaluateValidation(validasi, lines)
 
@@ -753,6 +755,7 @@ export async function parseQuoWorkbook(
     hasDiscrepancy: check.hasDiscrepancy,
     validasi,
     doubleCounts,
+    rangkuman,
   }
 }
 
@@ -760,11 +763,51 @@ function isPackage(l: ParsedLine) {
   return /\b(set|paket|package)\b/i.test(l.nama_item ?? "") || /[&+]/.test(l.item_code)
 }
 
-// SUMMARY: cari baris "Sub Total" / "Grand Total"; nilainya di kolom ber-header "AMOUNT" (opsi 1),
-// atau angka pertama di kanan label.
-function readSummary(wb: excelNs.Workbook, areas: AreaSummary[], currency: "IDR" | "USD"): SummaryCheckData | null {
-  const ws = wb.worksheets.find((w) => /summary/i.test(w.name))
-  if (!ws) return null
+// ---------------------------------------------------------------------------------------------------------
+// Baris rangkuman di bawah Sub Total: Delivery, Total After Delivery, DPP Lainnya, VAT, Grand Total.
+
+type FooterKind = "sub" | "delivery" | "tad" | "dpp" | "vat" | "grand"
+type FooterValues = Record<FooterKind, number | null> & { deliveryExcluded: boolean; found: Set<FooterKind> }
+
+function emptyFooter(): FooterValues {
+  return { sub: null, delivery: null, tad: null, dpp: null, vat: null, grand: null, deliveryExcluded: false, found: new Set() }
+}
+
+function footerKind(label: string): FooterKind | null {
+  const t = label.trim()
+  if (/^sub total/i.test(t)) return "sub"
+  if (/^total after (delivery|d\s*&\s*i)/i.test(t)) return "tad"
+  if (/^delivery/i.test(t)) return "delivery"
+  if (/\bDPP\b|^other tax base/i.test(t)) return "dpp"
+  if (/^(vat|ppn)\b/i.test(t)) return "vat"
+  if (/^grand total/i.test(t)) return "grand"
+  return null
+}
+
+function setFooter(out: FooterValues, kind: FooterKind, value: CellValue) {
+  if (out.found.has(kind)) return
+  out.found.add(kind)
+  out[kind] = num(value)
+  if (kind === "delivery" && /excluded/i.test(text(value) ?? "")) out.deliveryExcluded = true
+}
+
+function readAreaFooter(ws: Worksheet, L: Layout, footerRow: number): FooterValues {
+  const out = emptyFooter()
+  for (let r = footerRow; r <= Math.min(ws.rowCount, footerRow + 40); r++) {
+    for (const col of [L.price1.unit - 1, L.price1.unit]) {
+      const kind = footerKind(text(read(ws.getCell(r, col))) ?? "")
+      if (kind) {
+        setFooter(out, kind, read(ws.getCell(r, L.price1.total as number)))
+        break
+      }
+    }
+  }
+  return out
+}
+
+// SUMMARY: label di kolom mana pun; nilai di kolom ber-header "AMOUNT" (opsi 1), atau sel terisi pertama di kanan label.
+function scanSummary(ws: Worksheet): FooterValues {
+  const out = emptyFooter()
   const rowCount = Math.min(ws.rowCount, 200)
   let amountCol: number | null = null
   for (let r = 1; r <= rowCount && amountCol == null; r++) {
@@ -772,51 +815,89 @@ function readSummary(wb: excelNs.Workbook, areas: AreaSummary[], currency: "IDR"
       if (amountCol == null && /AMOUNT/i.test(text(read(cell)) ?? "")) amountCol = col
     })
   }
-  let subTotal: number | null = null
-  let grandTotal: number | null = null
   for (let r = 1; r <= rowCount; r++) {
     let labelCol = 0
-    let kind: "sub" | "grand" | null = null
+    let kind: FooterKind | null = null
     ws.getRow(r).eachCell((cell, col) => {
       if (kind) return
-      const t = text(read(cell)) ?? ""
-      if (/^sub total/i.test(t)) {
-        kind = "sub"
-        labelCol = col
-      } else if (/^grand total/i.test(t)) {
-        kind = "grand"
+      const k = footerKind(text(read(cell)) ?? "")
+      if (k) {
+        kind = k
         labelCol = col
       }
     })
     if (!kind) continue
-    let value: number | null = amountCol ? num(read(ws.getCell(r, amountCol))) : null
-    for (let c = labelCol + 1; value == null && c <= labelCol + 20; c++) value = num(read(ws.getCell(r, c)))
-    if (kind === "sub" && subTotal == null) subTotal = value
-    if (kind === "grand" && grandTotal == null) grandTotal = value
+    let value: CellValue = amountCol ? read(ws.getCell(r, amountCol)) : { kind: "empty" }
+    for (let c = labelCol + 1; value.kind === "empty" && c <= labelCol + 20; c++) value = read(ws.getCell(r, c))
+    setFooter(out, kind, value)
   }
+  return out
+}
 
-  if (subTotal != null) {
+function summaryCheck(
+  sheet: string,
+  v: FooterValues,
+  areas: AreaSummary[],
+  currency: "IDR" | "USD",
+): SummaryCheckData | null {
+  if (v.sub != null) {
     return {
-      sheet: ws.name,
-      sub_total: subTotal,
-      grand_total: grandTotal,
+      sheet,
+      sub_total: v.sub,
+      grand_total: v.grand,
       mode: "rows",
-      compare_value: subTotal,
+      compare_value: v.sub,
       areas_grand_total: null,
       static_mismatch: false,
     }
   }
-  if (grandTotal == null) return null
+  if (v.grand == null) return null
   const tolerance = currency === "USD" ? 0.01 : 1
   const areasGrand = areas.every((a) => a.grandTotal != null) ? areas.reduce((s, a) => s + (a.grandTotal ?? 0), 0) : null
   return {
-    sheet: ws.name,
+    sheet,
     sub_total: null,
-    grand_total: grandTotal,
+    grand_total: v.grand,
     mode: "static",
-    compare_value: grandTotal,
+    compare_value: v.grand,
     areas_grand_total: areasGrand,
-    static_mismatch: areasGrand != null && Math.abs(areasGrand - grandTotal) > tolerance,
+    static_mismatch: areasGrand != null && Math.abs(areasGrand - v.grand) > tolerance,
+  }
+}
+
+// Rangkuman: dari SUMMARY bila SUMMARY punya baris Delivery / Total After / DPP / VAT;
+// selain itu dari footer tiap sheet area, dijumlahkan (null bila ada sheet yang tidak punya angkanya).
+function buildRangkuman(
+  summaryName: string | null,
+  summary: FooterValues | null,
+  areaFooters: { sheet: string; values: FooterValues }[],
+): Rangkuman | null {
+  const detail: FooterKind[] = ["delivery", "tad", "dpp", "vat"]
+  if (summaryName && summary && detail.some((k) => summary.found.has(k))) {
+    return {
+      sumber: summaryName,
+      sub_total: summary.sub,
+      delivery: summary.delivery,
+      delivery_excluded: summary.deliveryExcluded,
+      total_after_delivery: summary.tad,
+      dpp_lainnya: summary.dpp,
+      vat: summary.vat,
+      grand_total: summary.grand,
+    }
+  }
+  const withFooter = areaFooters.filter((a) => a.values.found.size > 0)
+  if (!withFooter.length) return null
+  const sum = (k: FooterKind) =>
+    withFooter.every((a) => a.values[k] != null) ? withFooter.reduce((t, a) => t + (a.values[k] ?? 0), 0) : null
+  return {
+    sumber: withFooter.map((a) => a.sheet.trim()).join(" + "),
+    sub_total: sum("sub"),
+    delivery: sum("delivery"),
+    delivery_excluded: withFooter.some((a) => a.values.deliveryExcluded),
+    total_after_delivery: sum("tad"),
+    dpp_lainnya: sum("dpp"),
+    vat: sum("vat"),
+    grand_total: sum("grand"),
   }
 }
 

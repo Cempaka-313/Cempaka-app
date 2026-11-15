@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises"
 import assert from "node:assert/strict"
 import { parseQuoWorkbook, toItemRows } from "../src/lib/quo-excel/parse.ts"
 import { diffItems, itemKey, summarizeDiff } from "../src/lib/quo-excel/diff.ts"
-import { evaluateValidation } from "../src/lib/quo-excel/validation.ts"
+import { checkRangkuman, evaluateValidation } from "../src/lib/quo-excel/validation.ts"
 
 const args = process.argv.slice(2)
 const expectSelisih = args
@@ -43,6 +43,13 @@ console.log(
 )
 const flagged = res.lines.filter((l) => l.perlu_dicek)
 console.log(`Perlu dicek: ${flagged.length} dari ${res.lines.length} baris`)
+const rk = res.rangkuman
+console.log(
+  rk
+    ? `Rangkuman (${rk.sumber}): Sub Total ${rp(rk.sub_total)}, Delivery ${rk.delivery_excluded ? "Excluded" : rp(rk.delivery)}, ` +
+        `Total After D&I ${rp(rk.total_after_delivery)}, DPP ${rp(rk.dpp_lainnya)}, VAT ${rp(rk.vat)}, Grand Total ${rp(rk.grand_total)}`
+    : "Rangkuman: (tidak terbaca)",
+)
 console.log("Selisih total:")
 for (const e of res.errors) console.log("  !", e)
 console.log("Peringatan:")
@@ -87,6 +94,14 @@ for (const area of expectSelisih ?? []) {
     `area ${area} harus memunculkan peringatan selisih`,
   )
 }
+
+// Rangkuman harga
+assert.ok(rk && rk.grand_total != null, "rangkuman harga (Grand Total) terbaca")
+const ok = { sumber: "uji", sub_total: 1000, delivery: 100, delivery_excluded: false, total_after_delivery: 1200, dpp_lainnya: 1100, vat: 132, grand_total: 1332 }
+assert.equal(checkRangkuman(ok, "IDR").length, 0, "DPP/VAT benar → tanpa peringatan")
+const wrong = checkRangkuman({ ...ok, dpp_lainnya: 1200, vat: 120 }, "IDR")
+assert.ok(wrong.some((w) => w.startsWith("DPP")) && wrong.some((w) => w.startsWith("VAT")), "DPP/VAT salah → peringatan")
+assert.ok(checkRangkuman({ ...ok, vat: 10, delivery_excluded: true }, "USD").some((w) => /tanpa VAT/.test(w)), "export ber-VAT → peringatan")
 
 // Perbandingan revisi
 const rows = toItemRows(res.lines)

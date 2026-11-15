@@ -396,6 +396,11 @@ export type Database = {
           id: number
           kurs_usd: number | null
           project_id: number
+          delivery: number | null
+          delivery_excluded: boolean
+          dpp_lainnya: number | null
+          grand_total: number | null
+          rangkuman_sumber: string | null
           rev_no: number
           selisih: boolean
           selisih_alasan: string | null
@@ -403,8 +408,11 @@ export type Database = {
           selisih_oleh: string | null
           sumber: string
           total_hpp: number | null
+          sub_total_excel: number | null
+          total_after_delivery: number | null
           total_jual: number | null
           validasi: Json | null
+          vat: number | null
         }
         Insert: {
           catatan?: string | null
@@ -415,6 +423,11 @@ export type Database = {
           id?: never
           kurs_usd?: number | null
           project_id: number
+          delivery?: number | null
+          delivery_excluded?: boolean
+          dpp_lainnya?: number | null
+          grand_total?: number | null
+          rangkuman_sumber?: string | null
           rev_no: number
           selisih?: boolean
           selisih_alasan?: string | null
@@ -422,8 +435,11 @@ export type Database = {
           selisih_oleh?: string | null
           sumber: string
           total_hpp?: number | null
+          sub_total_excel?: number | null
+          total_after_delivery?: number | null
           total_jual?: number | null
           validasi?: Json | null
+          vat?: number | null
         }
         Update: Partial<Database["public"]["Tables"]["quotation_revisions"]["Insert"]>
         Relationships: [
