@@ -90,6 +90,16 @@ export function canCancel(status: string, role: string | null | undefined) {
   return status !== "cancelled" && hasRole(role, CANCEL_ROLES)
 }
 
+// Reset ke `costing` dari status mana pun (wajib alasan) — cabang reset_status di RPC.
+// Di internal_review, approver memakai "Minta Revisi" (tercatat di approvals), jadi reset hanya
+// ditampilkan untuk peran lain (estimator) di status itu.
+export const RESET_ROLES: readonly Role[] = EDIT_ROLES
+
+export function canReset(status: string, role: string | null | undefined) {
+  if (status === "costing" || !hasRole(role, RESET_ROLES)) return false
+  return status !== "internal_review" || !hasRole(role, APPROVER_ROLES)
+}
+
 export function hasRole(role: string | null | undefined, allowed: readonly Role[]) {
   return !!role && (allowed as readonly string[]).includes(role)
 }

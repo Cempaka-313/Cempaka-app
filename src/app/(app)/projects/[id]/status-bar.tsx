@@ -6,6 +6,7 @@ import {
   STATUS_LABEL,
   allowedTransitions,
   canCancel,
+  canReset,
   type ProjectStatus,
   type StatusTransition,
 } from "@/lib/status"
@@ -19,6 +20,7 @@ export function StatusBar({ projectId, status, role }: { projectId: number; stat
   const flow = PROJECT_STATUSES.filter((s) => s !== "cancelled")
   const actions = allowedTransitions(status, role)
   const showCancel = canCancel(status, role)
+  const showReset = canReset(status, role)
 
   function run(next: ProjectStatus, reason?: string) {
     setError(undefined)
@@ -47,6 +49,13 @@ export function StatusBar({ projectId, status, role }: { projectId: number; stat
     run("cancelled", r)
   }
 
+  function onReset() {
+    const r = prompt(`Reset status ke ${STATUS_LABEL.costing} — alasan (wajib):`)
+    if (r === null) return
+    if (!r.trim()) return setError("Alasan reset wajib diisi.")
+    run("costing", r)
+  }
+
   return (
     <div className="space-y-1">
       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -65,6 +74,16 @@ export function StatusBar({ projectId, status, role }: { projectId: number; stat
             {t.label}
           </button>
         ))}
+        {showReset && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={onReset}
+            className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+          >
+            Reset ke Costing
+          </button>
+        )}
         {showCancel && (
           <button
             type="button"
