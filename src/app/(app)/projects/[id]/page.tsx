@@ -1,13 +1,14 @@
 import Link from "next/link"
+import { Fragment } from "react"
 import { notFound } from "next/navigation"
 import { connection } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { formatDateTime, formatMoney, formatPercent } from "@/lib/format"
+import { currencyLabel, formatAmount, formatDateTime, formatMoney, formatPercent } from "@/lib/format"
 import { StatusBar } from "./status-bar"
 import { CommentForm } from "./comment-form"
 import { UploadRevision } from "./upload-revision"
 import { DownloadExcel } from "./download-excel"
-import { ItemMaterial } from "./item-material"
+import { ClampText } from "./clamp-text"
 import { RevisionCompare } from "./revision-compare"
 import { EDIT_ROLES, hasRole } from "@/lib/status"
 import { diffItems } from "@/lib/quo-excel/diff"
@@ -69,7 +70,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
   const perluDicek = items?.filter((i) => i.perlu_dicek).length ?? 0
 
   return (
-    <div className="mx-auto grid max-w-7xl gap-4 p-4 lg:grid-cols-[1fr_340px]">
+    <div className="mx-auto grid max-w-7xl gap-4 p-4 xl:grid-cols-[1fr_340px]">
       <div className="min-w-0 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <nav className="text-sm text-zinc-500">
@@ -148,68 +149,96 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
 
         <section id="items" className="rounded border border-zinc-200 bg-white">
           <h2 className="border-b border-zinc-200 px-4 py-2 font-semibold">Item</h2>
-          <div className="overflow-x-auto">
-            {/* table-fixed + lebar per kolom; Nama mengambil sisa ruang (min 280px lewat min-width tabel). */}
-            <table className="w-full min-w-[990px] table-fixed text-sm">
+          {/* Desktop (lg+): tabel muat penuh, lebar kolom dalam persen, header sticky terhadap halaman.
+              HP: tabel boleh lebih lebar dari layar → scroll horizontal di dalam kotak ini; kotak juga scroll
+              vertikal supaya header sticky tetap terlihat. */}
+          <div className="max-h-[75vh] overflow-auto lg:max-h-none lg:overflow-visible">
+            <table className="w-full min-w-[720px] table-fixed text-xs lg:min-w-0">
               <colgroup>
-                <col className="w-[90px]" />
-                <col />
-                <col className="w-[110px]" />
-                <col className="w-[160px]" />
-                <col className="w-[90px]" />
-                <col className="w-[130px]" />
-                <col className="w-[130px]" />
+                <col className="w-[9%]" />
+                <col className="w-[18%]" />
+                <col className="w-[26%]" />
+                <col className="w-[9%]" />
+                <col className="w-[11%]" />
+                <col className="w-[7%]" />
+                <col className="w-[10%]" />
+                <col className="w-[10%]" />
               </colgroup>
-              <thead className="bg-zinc-50 text-left text-xs text-zinc-500">
-                <tr>
-                  <th className="px-3 py-2">Kode</th>
-                  <th className="px-3 py-2">Nama</th>
-                  <th className="px-3 py-2">Area</th>
-                  <th className="px-3 py-2">Dimensi</th>
-                  <th className="px-3 py-2 text-right">Qty</th>
-                  <th className="px-3 py-2 text-right">HPP/unit</th>
-                  <th className="px-3 py-2 text-right">Jual/unit</th>
+              <thead className="text-left text-xs text-zinc-500">
+                <tr className="[&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:border-b [&>th]:border-zinc-200 [&>th]:bg-zinc-50 [&>th]:px-2 [&>th]:py-2 [&>th]:font-medium">
+                  <th>Kode</th>
+                  <th>Nama</th>
+                  <th>Material by Cempaka</th>
+                  <th>Area</th>
+                  <th>Dimensi</th>
+                  <th className="text-right">Qty</th>
+                  <th className="text-right">HPP/unit ({currencyLabel(project.jenis)})</th>
+                  <th className="text-right">Jual/unit ({currencyLabel(project.jenis)})</th>
                 </tr>
               </thead>
               <tbody>
-                {(items ?? []).map((it) => (
-                  <tr key={it.id} className="border-t border-zinc-100 align-top">
-                    <td className="px-3 py-3 font-mono text-xs [overflow-wrap:anywhere]">
-                      {it.item_code}
-                      {(it.option_no === 2 || it.perlu_dicek) && (
-                        <div className="mt-1 flex flex-wrap gap-1 font-sans">
-                          {it.option_no === 2 && <span className="rounded bg-zinc-200 px-1">Opsi 2</span>}
-                          {it.perlu_dicek && (
-                            <span title={it.asumsi ?? undefined} className="cursor-help rounded bg-amber-200 px-1 text-amber-900">
-                              cek
-                            </span>
+                {(items ?? []).map((it, i) => {
+                  const prev = i > 0 ? items?.[i - 1] : undefined
+                  const newGroup = it.tipe && (it.tipe !== prev?.tipe || it.area !== prev?.area)
+                  return (
+                    <Fragment key={it.id}>
+                      {newGroup && (
+                        <tr className="bg-zinc-50/70">
+                          <td colSpan={8} className="px-2 py-1.5 text-xs font-semibold text-zinc-600">
+                            {it.tipe}
+                          </td>
+                        </tr>
+                      )}
+                      <tr className="border-t border-zinc-100 align-top [&>td]:px-2 [&>td]:py-2.5">
+                        <td className="font-mono [overflow-wrap:anywhere]">
+                          {it.item_code}
+                          {(it.option_no === 2 || it.perlu_dicek || it.catatan) && (
+                            <div className="mt-1 flex flex-wrap gap-1 font-sans">
+                              {it.option_no === 2 && <span className="rounded bg-zinc-200 px-1">Opsi 2</span>}
+                              {it.catatan && <span className="rounded bg-zinc-100 px-1 text-zinc-600">{it.catatan}</span>}
+                              {it.perlu_dicek && (
+                                <span
+                                  title={it.asumsi ?? undefined}
+                                  className="cursor-help rounded bg-amber-200 px-1 text-amber-900"
+                                >
+                                  cek
+                                </span>
+                              )}
+                            </div>
                           )}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="break-words">{it.nama_item ?? "—"}</div>
-                      <ItemMaterial text={it.deskripsi} />
-                      {it.tipe && <div className="mt-0.5 text-xs text-zinc-500">{it.tipe}</div>}
-                      {it.catatan && <div className="text-xs text-zinc-500">{it.catatan}</div>}
-                      {it.perlu_dicek && it.asumsi && (
-                        <div title={it.asumsi} className="mt-0.5 line-clamp-2 text-xs text-amber-800">
-                          {it.asumsi}
-                        </div>
-                      )}
-                    </td>
-                    <td className="break-words px-3 py-3">{it.area ?? "—"}</td>
-                    <td className="break-words px-3 py-3">{it.dimensi ?? "—"}</td>
-                    <td className="px-3 py-3 text-right">
-                      {it.qty ?? "—"} {it.unit}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-3 text-right">{formatMoney(it.hpp_unit, project.jenis)}</td>
-                    <td className="whitespace-nowrap px-3 py-3 text-right">{formatMoney(it.harga_jual_unit, project.jenis)}</td>
-                  </tr>
-                ))}
+                        </td>
+                        <td>
+                          <ClampText text={it.nama_item} className="text-sm text-zinc-900" />
+                        </td>
+                        <td>
+                          <ClampText text={it.deskripsi} className="text-zinc-600" />
+                        </td>
+                        <td>
+                          <span title={it.area ?? undefined} className="line-clamp-2 [overflow-wrap:anywhere]">
+                            {it.area ?? "—"}
+                          </span>
+                        </td>
+                        <td>
+                          <span title={it.dimensi ?? undefined} className="line-clamp-2 [overflow-wrap:anywhere]">
+                            {it.dimensi ?? "—"}
+                          </span>
+                        </td>
+                        <td className="text-right tabular-nums [overflow-wrap:anywhere]">
+                          {it.qty ?? "—"} {it.unit}
+                        </td>
+                        <td className="text-right tabular-nums [overflow-wrap:anywhere]">
+                          {formatAmount(it.hpp_unit, project.jenis)}
+                        </td>
+                        <td className="text-right tabular-nums [overflow-wrap:anywhere]">
+                          {formatAmount(it.harga_jual_unit, project.jenis)}
+                        </td>
+                      </tr>
+                    </Fragment>
+                  )
+                })}
                 {!items?.length && (
                   <tr>
-                    <td colSpan={7} className="px-3 py-6 text-center text-zinc-500">
+                    <td colSpan={8} className="px-3 py-6 text-center text-zinc-500">
                       Belum ada item.
                     </td>
                   </tr>
@@ -225,7 +254,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
       </div>
 
       {/* Chatter */}
-      <aside className="space-y-3 lg:sticky lg:top-4 lg:self-start">
+      <aside className="space-y-3 xl:sticky xl:top-4 xl:self-start">
         <h2 className="font-semibold">Aktivitas</h2>
         <CommentForm projectId={project.id} />
         <ul className="space-y-3 text-sm">

@@ -22,3 +22,14 @@ export function formatDateTime(value: string) {
     timeZone: "Asia/Makassar",
   }).format(new Date(value))
 }
+
+// Angka tanpa simbol mata uang (untuk kolom tabel sempit; mata uang ditulis di header kolom).
+export function formatAmount(value: number | null | undefined, jenis: string) {
+  if (value == null) return "—"
+  const usd = jenis === "export"
+  return new Intl.NumberFormat("id-ID", { maximumFractionDigits: usd ? 2 : 0 }).format(value)
+}
+
+export function currencyLabel(jenis: string) {
+  return jenis === "export" ? "USD" : "Rp"
+}
