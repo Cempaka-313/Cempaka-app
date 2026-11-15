@@ -10,6 +10,7 @@ import { UploadRevision } from "./upload-revision"
 import { DownloadExcel } from "./download-excel"
 import { ClampText } from "./clamp-text"
 import { ItemImage } from "./item-image"
+import { ActivityPanel, type ActivityEntry } from "./activity-panel"
 import { ITEM_IMAGES_BUCKET } from "@/lib/quo-excel/storage"
 import { RevisionCompare } from "./revision-compare"
 import { RevisionValidation } from "./revision-validation"
@@ -43,7 +44,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
     ? itemsQuery.eq("revision_id", project.current_revision_id)
     : itemsQuery.is("revision_id", null)
 
-  const [{ data: items }, { data: revisions }, { data: activities }, { data: role }, { count: fileCount }] =
+  const [{ data: items }, { data: revisions }, { data: activities, count: activityCount }, { data: role }, { count: fileCount }] =
     await Promise.all([
       itemsQuery,
       supabase
@@ -55,10 +56,12 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
         .order("rev_no", { ascending: false }),
       supabase
         .from("activity_log")
-        .select("id, aksi, objek, nilai_lama, nilai_baru, alasan, created_at, user:profiles!activity_log_user_id_fkey(nama)")
+        .select("id, aksi, objek, nilai_lama, nilai_baru, alasan, created_at, user:profiles!activity_log_user_id_fkey(nama)", {
+          count: "exact",
+        })
         .eq("project_id", id)
         .order("created_at", { ascending: false })
-        .limit(50),
+        .limit(200),
       supabase.rpc("app_role"),
       supabase.from("project_files").select("id", { count: "exact", head: true }).eq("project_id", id),
     ])
@@ -338,40 +341,59 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
         )}
       </div>
 
-      {/* Chatter */}
-      <aside className="space-y-3 xl:sticky xl:top-4 xl:self-start">
-        <h2 className="font-semibold">Aktivitas</h2>
+      {/* Chatter: 5 aktivitas terbaru, satu baris per entri; panel tidak lebih tinggi dari layar. */}
+      <aside className="flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col gap-2 xl:sticky xl:top-4 xl:self-start">
+        <h2 className="text-sm font-semibold">Aktivitas</h2>
         <CommentForm projectId={project.id} />
-        <ul className="space-y-3 text-sm">
-          {(activities ?? []).map((a) => (
-            <li key={a.id} className="rounded bg-white p-3 shadow-sm">
-              <div className="flex justify-between text-xs text-zinc-500">
-                <span className="font-medium text-zinc-800">{a.user?.nama ?? "Sistem"}</span>
-                <span>{formatDateTime(a.created_at)}</span>
-              </div>
-              <p className="mt-1">
-                {a.aksi === "komentar" ? (
-                  a.alasan
-                ) : a.nilai_lama || a.nilai_baru ? (
-                  <>
-                    {a.objek ?? a.aksi}: <span className="text-zinc-500">{a.nilai_lama ?? "—"}</span> →{" "}
-                    <span className="font-medium">{a.nilai_baru ?? "—"}</span>
-                    {a.alasan && <span className="block text-zinc-600">{a.alasan}</span>}
-                  </>
-                ) : (
-                  <>
-                    {a.aksi}
-                    {a.alasan && `: ${a.alasan}`}
-                  </>
-                )}
-              </p>
-            </li>
-          ))}
-          {!activities?.length && <li className="text-zinc-500">Belum ada aktivitas.</li>}
-        </ul>
+        <ActivityPanel entries={(activities ?? []).map(toActivityEntry)} total={activityCount ?? activities?.length ?? 0} />
       </aside>
     </div>
   )
+}
+
+type ActivityRow = {
+  id: number
+  aksi: string
+  objek: string | null
+  nilai_lama: string | null
+  nilai_baru: string | null
+  alasan: string | null
+  created_at: string
+  user: { nama: string | null } | null
+}
+
+// Ringkasan satu baris + detail panjang untuk panel Aktivitas (nama status tetap bahasa Inggris).
+function toActivityEntry(a: ActivityRow): ActivityEntry {
+  const perubahan = a.nilai_lama || a.nilai_baru ? `${a.nilai_lama ?? "—"} → ${a.nilai_baru ?? "—"}` : null
+  const ringkas = (() => {
+    switch (a.aksi) {
+      case "komentar":
+        return `berkomentar: ${a.alasan ?? ""}`
+      case "upload_revisi":
+        return `upload ${a.nilai_baru ?? "revisi"}`
+      case "ajukan_approval":
+        return "mengajukan approval"
+      case "approve":
+        return "approve"
+      case "minta_revisi":
+        return "minta revisi"
+      case "reset_status":
+        return "reset ke costing"
+      case "ubah_status":
+        return `status → ${a.nilai_baru ?? "—"}`
+      case "pilih_hitung_dobel":
+        return `pilih ${a.nilai_baru ?? "baris"} dihitung`
+      case "selisih_disengaja":
+        return `alasan selisih ${a.nilai_baru ?? ""}`.trim()
+      default:
+        return perubahan ? `${a.objek ?? a.aksi}: ${perubahan}` : a.aksi
+    }
+  })()
+  const detail =
+    a.aksi === "komentar"
+      ? a.alasan
+      : [a.objek === "status" && perubahan ? `Status: ${perubahan}` : null, a.alasan].filter(Boolean).join("\n") || null
+  return { id: a.id, nama: a.user?.nama ?? "Sistem", ringkas, detail, created_at: a.created_at }
 }
 
 function SmartButton({ label, value, href, warn }: { label: string; value: number; href?: string; warn?: boolean }) {
