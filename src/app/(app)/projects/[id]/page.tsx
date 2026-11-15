@@ -5,6 +5,10 @@ import { createClient } from "@/lib/supabase/server"
 import { formatDateTime, formatMoney, formatPercent } from "@/lib/format"
 import { StatusBar } from "./status-bar"
 import { CommentForm } from "./comment-form"
+import { UploadRevision } from "./upload-revision"
+import { RevisionCompare } from "./revision-compare"
+import { EDIT_ROLES, hasRole } from "@/lib/status"
+import { diffItems } from "@/lib/quo-excel/diff"
 
 export default async function ProjectDetailPage({ params }: PageProps<"/projects/[id]">) {
   await connection()
@@ -25,10 +29,9 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
 
   let itemsQuery = supabase
     .from("project_items")
-    .select("id, item_code, nama_item, tipe, area, dimensi, qty, unit, option_no, hpp_unit, harga_jual_unit, perlu_dicek")
+    .select("id, item_code, nama_item, tipe, area, dimensi, qty, unit, option_no, hpp_unit, harga_jual_unit, perlu_dicek, asumsi, catatan")
     .eq("project_id", id)
-    .order("item_code")
-    .order("option_no")
+    .order("id")
   itemsQuery = project.current_revision_id
     ? itemsQuery.eq("revision_id", project.current_revision_id)
     : itemsQuery.is("revision_id", null)
@@ -52,6 +55,15 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
     ])
 
   const currentRev = revisions?.find((r) => r.id === project.current_revision_id)
+  const prevRev = currentRev ? revisions?.find((r) => r.rev_no < currentRev.rev_no) : undefined
+  const { data: prevItems } = prevRev
+    ? await supabase
+        .from("project_items")
+        .select("area, item_code, option_no, nama_item, qty, unit, harga_jual_unit, hpp_unit")
+        .eq("revision_id", prevRev.id)
+    : { data: null }
+  const diff = currentRev && prevRev && prevItems ? diffItems(prevItems, items ?? []) : null
+  const canUpload = hasRole(role, EDIT_ROLES) && !["completed", "cancelled"].includes(project.status)
   const perluDicek = items?.filter((i) => i.perlu_dicek).length ?? 0
 
   return (
@@ -122,11 +134,17 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
                     <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
                       {it.item_code}
                       {it.option_no === 2 && <span className="ml-1 rounded bg-zinc-200 px-1">Opsi 2</span>}
-                      {it.perlu_dicek && <span className="ml-1 rounded bg-amber-200 px-1 text-amber-900">cek</span>}
+                      {it.perlu_dicek && (
+                        <span title={it.asumsi ?? undefined} className="ml-1 cursor-help rounded bg-amber-200 px-1 text-amber-900">
+                          cek
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       {it.nama_item ?? "—"}
                       {it.tipe && <div className="text-xs text-zinc-500">{it.tipe}</div>}
+                      {it.catatan && <div className="text-xs text-zinc-500">{it.catatan}</div>}
+                      {it.perlu_dicek && it.asumsi && <div className="text-xs text-amber-800">{it.asumsi}</div>}
                     </td>
                     <td className="px-3 py-2">{it.area ?? "—"}</td>
                     <td className="whitespace-nowrap px-3 py-2">{it.dimensi ?? "—"}</td>
@@ -149,8 +167,15 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
           </div>
         </section>
 
+        {diff && currentRev && prevRev && (
+          <RevisionCompare before={prevRev} after={currentRev} diff={diff} jenis={project.jenis} />
+        )}
+
         <section id="revisi" className="rounded border border-zinc-200 bg-white">
-          <h2 className="border-b border-zinc-200 px-4 py-2 font-semibold">Riwayat revisi</h2>
+          <div className="flex flex-wrap items-start justify-between gap-2 border-b border-zinc-200 px-4 py-2">
+            <h2 className="font-semibold">Riwayat revisi</h2>
+            {canUpload && <UploadRevision projectId={project.id} />}
+          </div>
           <ul className="divide-y divide-zinc-100 text-sm">
             {(revisions ?? []).map((r) => (
               <li key={r.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2">
@@ -164,6 +189,12 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
                 <span className="ml-auto text-xs text-zinc-500">
                   {r.pembuat?.nama ?? "—"} · {formatDateTime(r.created_at)}
                 </span>
+                {r.catatan && (
+                  <details className="w-full text-xs text-zinc-600">
+                    <summary className="cursor-pointer text-zinc-500">Catatan</summary>
+                    <p className="mt-1 whitespace-pre-line">{r.catatan}</p>
+                  </details>
+                )}
               </li>
             ))}
             {!revisions?.length && <li className="px-4 py-6 text-center text-zinc-500">Belum ada revisi.</li>}

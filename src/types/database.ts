@@ -446,6 +446,19 @@ export type Database = {
         Args: { p_project_id: number; p_next: string; p_reason?: string | null }
         Returns: undefined
       }
+      create_quotation_revision: {
+        Args: {
+          p_project_id: number
+          p_excel_path: string
+          p_total_hpp: number | null
+          p_total_jual: number | null
+          p_gpm: number | null
+          p_catatan: string | null
+          p_items: Json
+          p_log: string
+        }
+        Returns: { revision_id: number; rev_no: number }[]
+      }
     }
     Enums: { [_ in never]: never }
     CompositeTypes: { [_ in never]: never }
